@@ -1,0 +1,24 @@
+## Interface: 120001
+## Title: Personal Resource Options
+## Notes: Enhances the Personal Resource Display with customizable text and visibility controls for health, power, alternate power, and class resource bars.
+## Author: Lousid
+## Version: @project-version@
+## SavedVariables: PersonalResourceOptionsDB
+## Category-enUS: Combat
+## Category-frFR: Combat
+## Category-deDE: Kampf
+## Category-esES: Combate
+## Category-esMX: Combate
+## Category-itIT: Combate
+## Category-koKR: 전투
+## Category-ptBR: Combate
+## Category-ruRU: Боевые
+## Category-zhCN: 战斗
+## Category-zhTW: 戰鬥
+## OptionalDeps: Blizzard_Settings, Blizzard_PersonalResourceDisplay
+## DefaultState: enabled
+## AddonCompartmentFunc: PRO_OnAddonCompartmentClick
+## IconTexture: Interface\AddOns\PersonalResourceOptions\Assets\icon
+
+Settings.lua
+Core.lua
