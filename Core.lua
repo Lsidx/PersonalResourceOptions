@@ -17,7 +17,7 @@ local UnitPower           = UnitPower;
 local AbbreviateNumbers   = AbbreviateNumbers;
 local GetRuneCooldown     = GetRuneCooldown;
 local GetTime             = GetTime;
-local ceil = math.ceil;
+local ceil                = math.ceil;
 
 -- Category ID returned by PRO_RegisterSettings; used by the slash command.
 local categoryID;
@@ -29,8 +29,26 @@ local altPowerText;
 
 -- Class capability flags set during init; used by ApplySettings to avoid
 -- showing bars/frames that don't exist for the player's class.
-local hasAltPowerBar = false;
-local hasClassFrame  = false;
+local hasAltPowerBar    = false;
+local hasClassFrame     = false;
+
+-- Pre-built AbbreviateNumbers options for alt power decimal control.
+-- breakpointData is ordered largest to smallest (one entry suffices since
+-- alt power values are always sub-1000 with no abbreviation suffix).
+-- significandDivisor = 1 leaves the value unscaled.
+-- fractionDivisor:  1 = integer,  10 = one decimal,  100 = two decimals.
+-- abbreviationIsGlobal = false skips the global string lookup for the empty suffix.
+local ALT_POWER_OPTIONS = {
+	-- breakpoint = 0 → applies to all values >= 0.
+	-- significandDivisor / fractionDivisor pair controls decimal places:
+	--   0 decimals: floor(v / 1)    / 1   = integer
+	--   1 decimal:  floor(v / 0.1)  / 10  = one decimal  (e.g. 9.123 → 9.1)
+	--   2 decimals: floor(v / 0.01) / 100 = two decimals (e.g. 9.123 → 9.12)
+	[0] = { breakpointData = { { breakpoint = 0, abbreviation = "", abbreviationIsGlobal = false, significandDivisor = 1,    fractionDivisor = 1   } } },
+	[1] = { breakpointData = { { breakpoint = 0, abbreviation = "", abbreviationIsGlobal = false, significandDivisor = 0.1,  fractionDivisor = 10  } } },
+	[2] = { breakpointData = { { breakpoint = 0, abbreviation = "", abbreviationIsGlobal = false, significandDivisor = 0.01, fractionDivisor = 100 } } },
+};
+local altPowerOptions = ALT_POWER_OPTIONS[1];  -- default: 1 decimal place
 
 -- Dedicated frames that own their event registrations.
 -- Keeping them separate means each can be registered/unregistered independently.
@@ -52,7 +70,7 @@ end);
 local altPowerFrame = CreateFrame("Frame");
 local function AltPowerOnUpdate()
 	altPowerText:SetText(AbbreviateNumbers(
-		PersonalResourceDisplayFrame.AlternatePowerBar:GetValue()));
+		PersonalResourceDisplayFrame.AlternatePowerBar:GetValue(), altPowerOptions));
 end;
 
 -- Per-rune FontStrings for Death Knight cooldown countdown text (indices 1-6).
@@ -230,6 +248,7 @@ local function ApplySettings(db)
 			end
 
 			altPowerText:Show();
+			altPowerOptions = ALT_POWER_OPTIONS[db.altPowerTextDecimals or 1];
 			altPowerFrame:SetScript("OnUpdate", AltPowerOnUpdate);
 		end
 	end

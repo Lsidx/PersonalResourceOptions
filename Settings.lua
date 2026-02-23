@@ -116,6 +116,7 @@ function PRO_RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		AddCheckbox   (K..p.."ThickOutline", p.."ThickOutline", labelPrefix.."Thick Outline", "Apply a thick outline (overrides Outline).", false,                           enableInit, leafPred);
 		AddCheckbox   (K..p.."Mono",         p.."Mono",         labelPrefix.."Monochrome",    "Render the text without anti-aliasing.",     false,                           enableInit, leafPred);
 		AddColorSwatch(K..p.."Color",        p.."Color",        labelPrefix.."Text Color",    "Color of the text.",                                                           enableInit, leafPred);
+		return enableInit;
 	end
 
 	-- ═════════════════════════════════════════════════════════════════════
@@ -192,10 +193,18 @@ function PRO_RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 	if hasAltPowerBar then
 		layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Alternate Power Bar Text"));
 
-		AddTextSection("altPower", "Alt Power ", "Show Alternate Power Value",
+		local altPowerEnableInit = AddTextSection("altPower", "Alt Power ", "Show Alternate Power Value",
 			"Display the current value on the alternate power bar.",
 			14, enableAltPowerBarInitializer,
 			function() return db.enableDisplay and db.enableAltPowerBar; end);
+
+		AddSlider(
+			"PRO_altPowerTextDecimals", "altPowerTextDecimals",
+			"Alt Power Decimal Places",
+			"Decimal places shown (0 = integer, 1 = one decimal, 2 = two). Evoker Ebon Might benefits from 1; DH Soul Fragments and Monk Stagger are always whole numbers.",
+			1, 0, 2, 1,
+			altPowerEnableInit,
+			function() return db.enableDisplay and db.enableAltPowerBar and db.enableAltPowerText; end);
 	end
 
 	-- ═════════════════════════════════════════════════════════════════════
