@@ -28,6 +28,110 @@ local FONT_OPTIONS = {
 	{ value = "Fonts\\SKURRI.TTF",   label = "Skurri"        },
 }
 
+-- ---------------------------------------------------------------------------
+-- Profile management dialogs
+-- ---------------------------------------------------------------------------
+
+StaticPopupDialogs["PRO_NEW_PROFILE"] = {
+	text = "Enter a name for the new profile:",
+	button1 = ACCEPT,
+	button2 = CANCEL,
+	hasEditBox = 1,
+	maxLetters = 32,
+	OnShow = function(dialog)
+		dialog:GetEditBox():SetFocus()
+	end,
+	OnAccept = function(dialog)
+		local name = strtrim(dialog:GetEditBox():GetText())
+		if name == "" then return end
+		if PRO.CreateProfile(name) then
+			PRO.profileSetting:SetValue(name)
+		else
+			print("|cffff6666PRO:|r A profile named '" .. name .. "' already exists.")
+		end
+	end,
+	EditBoxOnEnterPressed = function(editBox)
+		local dialog = editBox:GetParent()
+		if dialog:GetButton1():IsEnabled() then
+			dialog.button1:Click()
+		end
+	end,
+	EditBoxOnTextChanged = StaticPopup_StandardNonEmptyTextHandler,
+	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
+	hideOnEscape = 1,
+	timeout = 0,
+	whileDead = 1,
+}
+
+StaticPopupDialogs["PRO_DELETE_PROFILE"] = {
+	text = "Delete profile '%s'?\n\nAny characters using this profile will be switched to Default.",
+	button1 = DELETE,
+	button2 = CANCEL,
+	OnAccept = function(dialog, data)
+		if PRO.DeleteProfile(data) then
+			PRO.profileSetting:SetValue("Default")
+		end
+	end,
+	showAlert = true,
+	hideOnEscape = 1,
+	timeout = 0,
+	whileDead = 1,
+}
+
+StaticPopupDialogs["PRO_EXPORT_PROFILE"] = {
+	text = "Copy the export string below (Ctrl+A, Ctrl+C):",
+	button1 = DONE,
+	hasEditBox = 1,
+	OnShow = function(dialog)
+		local encoded = PRO.ExportProfile()
+		dialog:GetEditBox():SetText(encoded)
+		dialog:GetEditBox():HighlightText()
+		dialog:GetEditBox():SetFocus()
+	end,
+	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
+	hideOnEscape = 1,
+	timeout = 0,
+	whileDead = 1,
+}
+
+StaticPopupDialogs["PRO_IMPORT_PROFILE"] = {
+	text = "Paste an exported profile string:",
+	button1 = ACCEPT,
+	button2 = CANCEL,
+	hasEditBox = 1,
+	OnShow = function(dialog)
+		dialog:GetEditBox():SetFocus()
+	end,
+	OnAccept = function(dialog)
+		local encoded = strtrim(dialog:GetEditBox():GetText())
+		if encoded == "" then return end
+		local name = "Imported"
+		local i = 1
+		while PRO.savedDB.profiles[name] do
+			i = i + 1
+			name = "Imported " .. i
+		end
+		local success, err = PRO.ImportProfile(name, encoded)
+		if success then
+			print("|cff00ff00PRO:|r Profile imported as '" .. name .. "'.")
+			PRO.profileSetting:SetValue(name)
+		else
+			print("|cffff6666PRO:|r Import failed: " .. (err or "unknown error"))
+		end
+	end,
+	EditBoxOnEnterPressed = function(editBox)
+		local dialog = editBox:GetParent()
+		if dialog:GetButton1():IsEnabled() then
+			dialog.button1:Click()
+		end
+	end,
+	EditBoxOnTextChanged = StaticPopup_StandardNonEmptyTextHandler,
+	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
+	hideOnEscape = 1,
+	timeout = 0,
+	whileDead = 1,
+}
+
 -- Registers all settings controls and returns the numeric category ID.
 --
 -- db                    : PersonalResourceOptionsDB (already initialized)
@@ -120,6 +224,77 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		AddColorSwatch(K..p.."Color",        p.."Color",        labelPrefix.."Text Color",    "Color of the text.",                                                           enableInit, leafPred)
 		return enableInit
 	end
+
+	-- ═════════════════════════════════════════════════════════════════════
+	-- Profiles
+	-- ═════════════════════════════════════════════════════════════════════
+
+	layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Profiles"))
+
+	local function GetProfileOptions()
+		local c = Settings.CreateControlTextContainer()
+		for _, name in ipairs(PRO.GetProfileNames()) do
+			c:Add(name, name)
+		end
+		return c:GetData()
+	end
+
+	local profileSetting = Settings.RegisterProxySetting(category, "PRO_PROFILE",
+		Settings.VarType.String, "Active Profile", "Default",
+		function() return PRO.currentProfileName end,
+		function(name) PRO.SwitchProfile(name) end)
+	Settings.CreateDropdown(category, profileSetting, GetProfileOptions,
+		"Select the active profile for this character.")
+	PRO.profileSetting = profileSetting
+
+	local addSearchTags = true
+
+	layout:AddInitializer(CreateSettingsButtonInitializer(
+		"", "New Profile",
+		function() StaticPopup_Show("PRO_NEW_PROFILE") end,
+		"Create a new empty profile.", addSearchTags))
+
+	layout:AddInitializer(CreateSettingsButtonInitializer(
+		"", "Delete Profile",
+		function()
+			if PRO.currentProfileName == "Default" then
+				print("|cffff6666PRO:|r The Default profile cannot be deleted.")
+				return
+			end
+			StaticPopup_Show("PRO_DELETE_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
+		end,
+		"Delete the current profile.", addSearchTags))
+
+	local function GetCopyOptions()
+		local c = Settings.CreateControlTextContainer()
+		for _, name in ipairs(PRO.GetProfileNames()) do
+			if name ~= PRO.currentProfileName then
+				c:Add(name, name)
+			end
+		end
+		return c:GetData()
+	end
+
+	local copySetting = Settings.RegisterProxySetting(category, "PRO_COPY_FROM",
+		Settings.VarType.String, "Copy From", "",
+		function() return "" end,
+		function(name)
+			if name ~= "" then
+				PRO.CopyProfile(name)
+			end
+		end)
+	Settings.CreateDropdown(category, copySetting, GetCopyOptions,
+		"Copy all settings from another profile into the current one.")
+
+	layout:AddInitializer(CreateSettingsButtonInitializer(
+		"", "Export Profile",
+		function() StaticPopup_Show("PRO_EXPORT_PROFILE") end,
+		"Export the current profile as a shareable string.", addSearchTags))
+
+	layout:AddInitializer(CreateSettingsButtonInitializer(
+		"", "Import Profile",
+		function() StaticPopup_Show("PRO_IMPORT_PROFILE") end,
+		"Import a profile from a shared string.", addSearchTags))
 
 	-- ═════════════════════════════════════════════════════════════════════
 	-- Display

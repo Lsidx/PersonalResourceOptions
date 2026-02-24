@@ -32,6 +32,74 @@ local ALT_POWER_OPTIONS = {
 }
 local altPowerOptions = ALT_POWER_OPTIONS[1]
 
+-- ---------------------------------------------------------------------------
+-- Profile system constants
+-- ---------------------------------------------------------------------------
+
+local CLASS_SPECIFIC_KEYS = {
+	"classFrameScale",
+	"classFrameOffsetX",
+	"classFrameOffsetY",
+	"enableRuneCooldownText",
+	"runeCooldownTextAnchor",
+	"runeCooldownTextFont",
+	"runeCooldownTextSize",
+	"runeCooldownTextOutline",
+	"runeCooldownTextThickOutline",
+	"runeCooldownTextMono",
+	"runeCooldownTextColor",
+}
+
+local IS_CLASS_SPECIFIC = {}
+for _, key in ipairs(CLASS_SPECIFIC_KEYS) do
+	IS_CLASS_SPECIFIC[key] = true
+end
+
+local DEFAULTS = {
+	enableDisplay             = true,
+	enableHealthBar           = true,
+	enablePowerBar            = true,
+	enableAltPowerBar         = true,
+	enableClassFrame          = true,
+	displayScale              = 100,
+	classFrameScale           = 100,
+	classFrameOffsetX         = 0,
+	classFrameOffsetY         = 0,
+	enableHealthText          = true,
+	healthTextAnchor          = "CENTER",
+	healthTextFont            = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	healthTextSize            = 14,
+	healthTextOutline         = false,
+	healthTextThickOutline    = true,
+	healthTextMono            = false,
+	healthTextColor           = "ffffffff",
+	enablePowerText           = true,
+	powerTextAnchor           = "CENTER",
+	powerTextFont             = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	powerTextSize             = 14,
+	powerTextOutline          = false,
+	powerTextThickOutline     = true,
+	powerTextMono             = false,
+	powerTextColor            = "ffffffff",
+	enableAltPowerText        = true,
+	altPowerTextAnchor        = "CENTER",
+	altPowerTextFont          = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	altPowerTextSize          = 14,
+	altPowerTextOutline       = false,
+	altPowerTextThickOutline  = true,
+	altPowerTextMono          = false,
+	altPowerTextColor         = "ffffffff",
+	altPowerTextDecimals      = 1,
+	enableRuneCooldownText       = true,
+	runeCooldownTextAnchor       = "CENTER",
+	runeCooldownTextFont         = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	runeCooldownTextSize         = 12,
+	runeCooldownTextOutline      = false,
+	runeCooldownTextThickOutline = true,
+	runeCooldownTextMono         = false,
+	runeCooldownTextColor        = "ffffffff",
+}
+
 -- Event frames (one per bar type for independent register/unregister)
 local healthFrame = CreateFrame("Frame")
 healthFrame:SetScript("OnEvent", function()
@@ -83,14 +151,97 @@ local function BuildFontFlags(thickOutline, outline, mono)
 	return flags
 end
 
---- Apply scale and offset to prdClassFrame without clearing anchors
+--- Apply scale and offset to prdClassFrame.
 local function ApplyClassFrameLayout(db)
 	if not prdClassFrame or not PersonalResourceDisplayFrame.ClassFrameContainer then return end
 	prdClassFrame:SetScale(db.classFrameScale / 100)
-    prdClassFrame:ClearAllPoints();
+	prdClassFrame:ClearAllPoints()
 	prdClassFrame:SetPoint("CENTER",
 		PersonalResourceDisplayFrame.ClassFrameContainer, "CENTER",
 		db.classFrameOffsetX, db.classFrameOffsetY)
+end
+
+-- ---------------------------------------------------------------------------
+-- Profile system helpers
+-- ---------------------------------------------------------------------------
+
+--- Build a flat settings table from a profile, overlaying class-specific values.
+local function FlattenProfile(profile, classID)
+	local flat = {}
+	for k, v in pairs(profile) do
+		if k ~= "classSettings" then
+			flat[k] = v
+		end
+	end
+	local cs = profile.classSettings and profile.classSettings[classID]
+	if cs then
+		for _, key in ipairs(CLASS_SPECIFIC_KEYS) do
+			if cs[key] ~= nil then
+				flat[key] = cs[key]
+			end
+		end
+	end
+	for key, default in pairs(DEFAULTS) do
+		if flat[key] == nil then
+			flat[key] = default
+		end
+	end
+	return flat
+end
+
+--- Write the flat db table back into a profile, separating class-specific keys.
+local function UnflattenToProfile(db, profile, classID)
+	for k, v in pairs(db) do
+		if not IS_CLASS_SPECIFIC[k] then
+			profile[k] = v
+		end
+	end
+	if not profile.classSettings then
+		profile.classSettings = {}
+	end
+	if not profile.classSettings[classID] then
+		profile.classSettings[classID] = {}
+	end
+	local cs = profile.classSettings[classID]
+	for _, key in ipairs(CLASS_SPECIFIC_KEYS) do
+		cs[key] = db[key]
+	end
+end
+
+--- Get the character identity key (Name-NormalizedRealm).
+local function GetCharacterKey()
+	local name = UnitName("player")
+	local realm = GetNormalizedRealmName()
+	return name .. "-" .. (realm or "")
+end
+
+--- Resolve which profile name the current character should use.
+local function ResolveProfileName(savedDB, charKey)
+	local name = savedDB.characterProfiles and savedDB.characterProfiles[charKey]
+	if name and savedDB.profiles[name] then
+		return name
+	end
+	return "Default"
+end
+
+--- Migrate flat v1 DB to v2 profile structure.
+local function MigrateToV2(savedDB, classID)
+	local profile = {}
+	local classSettings = {}
+	for k, v in pairs(savedDB) do
+		if IS_CLASS_SPECIFIC[k] then
+			classSettings[k] = v
+		elseif k ~= "schemaVersion" then
+			profile[k] = v
+		end
+	end
+	if next(classSettings) then
+		profile.classSettings = { [classID] = classSettings }
+	end
+	wipe(savedDB)
+	savedDB.schemaVersion = 2
+	savedDB.profiles = { ["Default"] = profile }
+	savedDB.characterProfiles = {}
 end
 
 -- ---------------------------------------------------------------------------
@@ -220,63 +371,44 @@ local function ApplySettings(db)
 end
 
 -- ---------------------------------------------------------------------------
--- ADDON_LOADED: DB defaults + settings registration (no frame manipulation)
+-- ADDON_LOADED: DB migration, profile resolution, settings registration
 -- ---------------------------------------------------------------------------
 
 EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 	PersonalResourceOptionsDB = PersonalResourceOptionsDB or {}
-	local db = PersonalResourceOptionsDB
-
-	local defaults = {
-		enableDisplay             = true,
-		enableHealthBar           = true,
-		enablePowerBar            = true,
-		enableAltPowerBar         = true,
-		enableClassFrame          = true,
-		displayScale              = 100,
-		classFrameScale           = 100,
-		classFrameOffsetX         = 0,
-		classFrameOffsetY         = 0,
-		enableHealthText          = true,
-		healthTextAnchor          = "CENTER",
-		healthTextFont            = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-		healthTextSize            = 14,
-		healthTextOutline         = false,
-		healthTextThickOutline    = true,
-		healthTextMono            = false,
-		healthTextColor           = "ffffffff",
-		enablePowerText           = true,
-		powerTextAnchor           = "CENTER",
-		powerTextFont             = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-		powerTextSize             = 14,
-		powerTextOutline          = false,
-		powerTextThickOutline     = true,
-		powerTextMono             = false,
-		powerTextColor            = "ffffffff",
-		enableAltPowerText        = true,
-		altPowerTextAnchor        = "CENTER",
-		altPowerTextFont          = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-		altPowerTextSize          = 14,
-		altPowerTextOutline       = false,
-		altPowerTextThickOutline  = true,
-		altPowerTextMono          = false,
-		altPowerTextColor         = "ffffffff",
-		enableRuneCooldownText       = true,
-		runeCooldownTextAnchor       = "CENTER",
-		runeCooldownTextFont         = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-		runeCooldownTextSize         = 12,
-		runeCooldownTextOutline      = false,
-		runeCooldownTextThickOutline = true,
-		runeCooldownTextMono         = false,
-		runeCooldownTextColor        = "ffffffff",
-	}
-	for key, default in pairs(defaults) do
-		if db[key] == nil then
-			db[key] = default
-		end
-	end
+	local savedDB = PersonalResourceOptionsDB
 
 	local classID = select(3, UnitClass("player"))
+
+	-- Migrate flat DB (v1) to profile structure (v2)
+	if not savedDB.schemaVersion or savedDB.schemaVersion < 2 then
+		MigrateToV2(savedDB, classID)
+	end
+
+	-- Ensure structure exists
+	if not savedDB.profiles then savedDB.profiles = {} end
+	if not savedDB.profiles["Default"] then savedDB.profiles["Default"] = {} end
+	if not savedDB.characterProfiles then savedDB.characterProfiles = {} end
+
+	local charKey = GetCharacterKey()
+	local profileName = ResolveProfileName(savedDB, charKey)
+	local profile = savedDB.profiles[profileName]
+
+	-- Build flat db for Settings API (preserving table identity across switches)
+	local db = {}
+	local flat = FlattenProfile(profile, classID)
+	for k, v in pairs(flat) do
+		db[k] = v
+	end
+
+	-- Store references for cross-module access
+	PRO.savedDB = savedDB
+	PRO.db = db
+	PRO.classID = classID
+	PRO.charKey = charKey
+	PRO.currentProfileName = profileName
+	PRO.currentProfile = profile
+
 	hasAltPowerBar = classID == Constants.UICharacterClasses.DemonHunter
 		or classID == Constants.UICharacterClasses.Evoker
 		or classID == Constants.UICharacterClasses.Monk
@@ -290,10 +422,103 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 		or classID == Constants.UICharacterClasses.Evoker
 	local hasCooldownClassFrame = classID == Constants.UICharacterClasses.DeathKnight
 
-	categoryID = PRO.RegisterSettings(db, function()
+	local function OnSettingChanged()
+		UnflattenToProfile(db, PRO.currentProfile, PRO.classID)
 		ApplySettings(db)
-	end, hasAltPowerBar, hasClassFrame, hasCooldownClassFrame)
+	end
+
+	categoryID = PRO.RegisterSettings(db, OnSettingChanged, hasAltPowerBar, hasClassFrame, hasCooldownClassFrame)
 end)
+
+-- ---------------------------------------------------------------------------
+-- Profile CRUD (called from Settings.lua UI)
+-- ---------------------------------------------------------------------------
+
+--- Switch the current character to a different profile.
+function PRO.SwitchProfile(name)
+	if not PRO.savedDB.profiles[name] then return end
+	UnflattenToProfile(PRO.db, PRO.currentProfile, PRO.classID)
+	PRO.savedDB.characterProfiles[PRO.charKey] = name
+	PRO.currentProfileName = name
+	PRO.currentProfile = PRO.savedDB.profiles[name]
+	wipe(PRO.db)
+	local flat = FlattenProfile(PRO.currentProfile, PRO.classID)
+	for k, v in pairs(flat) do
+		PRO.db[k] = v
+	end
+	ApplySettings(PRO.db)
+end
+
+--- Create a new profile with default values.
+function PRO.CreateProfile(name)
+	if not name or name == "" or PRO.savedDB.profiles[name] then return false end
+	PRO.savedDB.profiles[name] = {}
+	return true
+end
+
+--- Delete a profile (Default cannot be deleted).
+function PRO.DeleteProfile(name)
+	if name == "Default" or not PRO.savedDB.profiles[name] then return false end
+	PRO.savedDB.profiles[name] = nil
+	for charKey, pName in pairs(PRO.savedDB.characterProfiles) do
+		if pName == name then
+			PRO.savedDB.characterProfiles[charKey] = nil
+		end
+	end
+	if PRO.currentProfileName == name then
+		PRO.SwitchProfile("Default")
+	end
+	return true
+end
+
+--- Copy all settings from a source profile into the current profile.
+function PRO.CopyProfile(sourceName)
+	local source = PRO.savedDB.profiles[sourceName]
+	if not source then return false end
+	local copy = CopyTable(source)
+	wipe(PRO.currentProfile)
+	for k, v in pairs(copy) do
+		PRO.currentProfile[k] = v
+	end
+	wipe(PRO.db)
+	local flat = FlattenProfile(PRO.currentProfile, PRO.classID)
+	for k, v in pairs(flat) do
+		PRO.db[k] = v
+	end
+	ApplySettings(PRO.db)
+	return true
+end
+
+--- Return a sorted list of all profile names.
+function PRO.GetProfileNames()
+	local names = {}
+	for name in pairs(PRO.savedDB.profiles) do
+		names[#names + 1] = name
+	end
+	table.sort(names)
+	return names
+end
+
+--- Export the current profile as a Base64-encoded string.
+function PRO.ExportProfile()
+	UnflattenToProfile(PRO.db, PRO.currentProfile, PRO.classID)
+	local data = CopyTable(PRO.currentProfile)
+	local cbor = C_EncodingUtil.SerializeCBOR(data)
+	local compressed = C_EncodingUtil.CompressString(cbor, Enum.CompressionType.Deflate)
+	return C_EncodingUtil.EncodeBase64(compressed)
+end
+
+--- Import a profile from a Base64-encoded string.
+function PRO.ImportProfile(name, encoded)
+	local ok, compressed = pcall(C_EncodingUtil.DecodeBase64, encoded)
+	if not ok or not compressed then return false, "Invalid Base64 data." end
+	local ok2, cbor = pcall(C_EncodingUtil.DecompressString, compressed, Enum.CompressionType.Deflate)
+	if not ok2 or not cbor then return false, "Decompression failed." end
+	local ok3, data = pcall(C_EncodingUtil.DeserializeCBOR, cbor)
+	if not ok3 or type(data) ~= "table" then return false, "Invalid profile data." end
+	PRO.savedDB.profiles[name] = data
+	return true
+end
 
 -- ---------------------------------------------------------------------------
 -- PLAYER_LOGIN: create FontStrings, install hooks, apply settings
@@ -304,7 +529,7 @@ loginFrame:RegisterEvent("PLAYER_LOGIN")
 loginFrame:SetScript("OnEvent", function(self)
 	self:UnregisterEvent("PLAYER_LOGIN")
 
-	local db = PersonalResourceOptionsDB
+	local db = PRO.db
 	local prd = PersonalResourceDisplayFrame
 	if not prd or not db then return end
 
