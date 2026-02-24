@@ -269,10 +269,11 @@ local function ApplySettings(db)
 	end
 	prd:SetScale(db.displayScale / 100)
 
-	if prdClassFrame and prdClassFrame:IsVisible() then
+	if prdClassFrame then
 		if db.enableClassFrame then
+			prdClassFrame:Show()
 			ApplyClassFrameLayout(db)
-		else
+		elseif prdClassFrame:IsVisible() then
 			prdClassFrame:Hide()
 		end
 	end
