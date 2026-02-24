@@ -162,8 +162,8 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 	AddSlider(
 		"PRO_displayScale", "displayScale",
-		"Display Scale (%)", "Scale of the entire Personal Resource Display (50-200%).",
-		100, 50, 200, 5, enableDisplayInitializer, IsDisplayEnabled)
+		"Display Scale (%)", "Scale of the entire Personal Resource Display (50-400%).",
+		100, 50, 400, 5, enableDisplayInitializer, IsDisplayEnabled)
 
 	-- ═════════════════════════════════════════════════════════════════════
 	-- Health Bar Text
@@ -220,8 +220,8 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		local function IsClassFrameEnabled() return db.enableDisplay and db.enableClassFrame end
 
 		AddSlider("PRO_classFrameScale", "classFrameScale",
-			"Class Frame Scale (%)", "Scale of the class resource frame widget (50-200%).",
-			100, 50, 200, 5, enableClassFrameInitializer, IsClassFrameEnabled)
+			"Class Frame Scale (%)", "Scale of the class resource frame widget (50-400%).",
+			100, 50, 400, 5, enableClassFrameInitializer, IsClassFrameEnabled)
 
 		AddSlider("PRO_classFrameOffsetX", "classFrameOffsetX",
 			"Class Frame X Offset", "Horizontal offset from the default position.",
