@@ -1,43 +1,25 @@
--- PersonalResourceOptions - Core.lua
+﻿-- PersonalResourceOptions - Core.lua
 -- Combat health and power text overlays for the Personal Resource Display.
 --
--- Overhead contract when a text option is OFF:
---   Its unit event is unregistered entirely → zero runtime overhead.
--- Overhead when ON:
---   One SetText() per relevant unit event.  Values are passed straight through
---   AbbreviateNumbers → SetText with no arithmetic or comparisons performed by
---   addon code, satisfying the taint requirements of restricted (raid / M+)
---   environments.
+-- Values are passed straight through AbbreviateNumbers -> SetText with no
+-- arithmetic or comparisons performed by addon code, satisfying taint
+-- requirements in restricted (raid / M+) environments.
 
 local ADDON_NAME, PRO = ...
 
--- Upvalue the hot-path globals to avoid repeated table lookups.
-local UnitHealth          = UnitHealth
-local UnitPower           = UnitPower
-local AbbreviateNumbers   = AbbreviateNumbers
-local GetRuneCooldown     = GetRuneCooldown
-local GetTime             = GetTime
-local ceil                = math.ceil
+local UnitHealth        = UnitHealth
+local UnitPower         = UnitPower
+local AbbreviateNumbers = AbbreviateNumbers
+local GetRuneCooldown   = GetRuneCooldown
+local GetTime           = GetTime
+local ceil              = math.ceil
 
--- Category ID returned by PRO.RegisterSettings; used by the slash command.
 local categoryID
+local healthText, powerText, altPowerText
+local hasAltPowerBar  = false
+local hasClassFrame   = false
+local runeTexts       = {}
 
--- FontStrings drawn over their respective bars.  Created once, never destroyed.
-local healthText
-local powerText
-local altPowerText
-
--- Class capability flags set during init; used by ApplySettings to avoid
--- showing bars/frames that don't exist for the player's class.
-local hasAltPowerBar    = false
-local hasClassFrame     = false
-
--- Pre-built AbbreviateNumbers options for alt power decimal control.
--- breakpointData is ordered largest to smallest (one entry suffices since
--- alt power values are always sub-1000 with no abbreviation suffix).
--- significandDivisor = 1 leaves the value unscaled.
--- fractionDivisor:  1 = integer,  10 = one decimal,  100 = two decimals.
--- abbreviationIsGlobal = false skips the global string lookup for the empty suffix.
 local ALT_POWER_OPTIONS = {
 	-- breakpoint = 0 → applies to all values >= 0.
 	-- significandDivisor / fractionDivisor pair controls decimal places:
@@ -48,14 +30,11 @@ local ALT_POWER_OPTIONS = {
 	[1] = { breakpointData = { { breakpoint = 0, abbreviation = "", abbreviationIsGlobal = false, significandDivisor = 0.1,  fractionDivisor = 10  } } },
 	[2] = { breakpointData = { { breakpoint = 0, abbreviation = "", abbreviationIsGlobal = false, significandDivisor = 0.01, fractionDivisor = 100 } } },
 }
-local altPowerOptions = ALT_POWER_OPTIONS[1]  -- default: 1 decimal place
+local altPowerOptions = ALT_POWER_OPTIONS[1]
 
--- Dedicated frames that own their event registrations.
--- Keeping them separate means each can be registered/unregistered independently.
+-- Event frames (one per bar type for independent register/unregister)
 local healthFrame = CreateFrame("Frame")
 healthFrame:SetScript("OnEvent", function()
-	-- Hot path: pass the health value directly to the screen.
-	-- No math, no comparisons, no branching on the value itself.
 	healthText:SetText(AbbreviateNumbers(UnitHealth("player")))
 end)
 
@@ -64,21 +43,12 @@ powerFrame:SetScript("OnEvent", function()
 	powerText:SetText(AbbreviateNumbers(UnitPower("player")))
 end)
 
--- The alternate power bar (DH Soul Fragments, Evoker Ebon Might, Monk Stagger)
--- is OnUpdate-driven internally by Blizzard -- there is no consistent unit event
--- across all three.  We mirror that pattern with our own OnUpdate frame.
 local altPowerFrame = CreateFrame("Frame")
 local function AltPowerOnUpdate()
 	altPowerText:SetText(AbbreviateNumbers(
 		PersonalResourceDisplayFrame.AlternatePowerBar:GetValue(), altPowerOptions))
 end
 
--- Per-rune FontStrings for Death Knight cooldown countdown text (indices 1-6).
--- Created at init time if the player is a Death Knight; nil for all other classes.
-local runeTexts = {}
-
--- OnUpdate frame for rune cooldown text.  The script is set/cleared in
--- ApplySettings so there is zero overhead when the feature is disabled.
 local runeCooldownFrame = CreateFrame("Frame")
 local function RuneCooldownOnUpdate()
 	for i = 1, 6 do
@@ -93,13 +63,11 @@ local function RuneCooldownOnUpdate()
 		end
 	end
 end
--- -----------------------------------------------------------------------------
--- ApplySettings
--- Reads all values from PersonalResourceOptionsDB and reconfigures the
--- FontString.  The db table is always current when this is called because
--- Settings.RegisterAddOnSetting writes changes to it automatically.
--- -----------------------------------------------------------------------------
--- Shared helper: builds the font flags string from three booleans.
+
+-- ---------------------------------------------------------------------------
+-- Helpers
+-- ---------------------------------------------------------------------------
+
 local function BuildFontFlags(thickOutline, outline, mono)
 	local flags
 	if thickOutline then
@@ -115,73 +83,50 @@ local function BuildFontFlags(thickOutline, outline, mono)
 	return flags
 end
 
--- -----------------------------------------------------------------------------
--- ApplyClassFrameLayout
--- Applies scale and X/Y offset to prdClassFrame.  Kept as a separate function
--- because it is also called from prdClassFrame's OnShow post-hook: Blizzard's
--- own OnShow handler resets the CENTER anchor, so we re-apply ours afterward.
--- Do NOT call ClearAllPoints() here — prdClassFrame inherits from
--- HorizontalLayoutFrame (via ClassResourceBarTemplate) and clearing anchors
--- can invalidate the Essence bar layout on Evoker.
--- -----------------------------------------------------------------------------
+--- Apply scale and offset to prdClassFrame without clearing anchors
 local function ApplyClassFrameLayout(db)
-	if not prdClassFrame then return end
+	if not prdClassFrame or not PersonalResourceDisplayFrame.ClassFrameContainer then return end
 	prdClassFrame:SetScale(db.classFrameScale / 100)
+    prdClassFrame:ClearAllPoints();
 	prdClassFrame:SetPoint("CENTER",
 		PersonalResourceDisplayFrame.ClassFrameContainer, "CENTER",
 		db.classFrameOffsetX, db.classFrameOffsetY)
 end
 
+-- ---------------------------------------------------------------------------
+-- ApplySettings
+-- ---------------------------------------------------------------------------
+
 local function ApplySettings(db)
-	-- ── Display / bar visibility ───────────────────────────────────────
 	local prd = PersonalResourceDisplayFrame
-	if prd then
-		if not db.enableDisplay then
-			prd:Hide()
-		else
-			prd:Show()
-			if prd.HealthBarsContainer then
-				if db.enableHealthBar then
-					prd.HealthBarsContainer:Show()
-				else
-					prd.HealthBarsContainer:Hide()
-				end
-			end
-			if prd.PowerBar then
-				if db.enablePowerBar then
-					prd.PowerBar:Show()
-				else
-					prd.PowerBar:Hide()
-				end
-			end
-			if prd.AlternatePowerBar then
-				if hasAltPowerBar and db.enableAltPowerBar then
-					prd.AlternatePowerBar:Show()
-				else
-					prd.AlternatePowerBar:Hide()
-				end
-			end
-		end
-		prd:SetScale(db.displayScale / 100)
+	if not prd then return end
+
+	if not db.enableDisplay then
+		prd:Hide()
+	else
+		prd:UpdateShownState()
 	end
 
-	-- ── Class frame visibility ─────────────────────────────────────────
-	-- Manage ClassFrameContainer (the parent) rather than prdClassFrame
-	-- directly.  prdClassFrame's own Setup() toggles its visibility
-	-- internally (SetShown(false) then Show() for Evoker due to the
-	-- DRACTHYR/EVOKER class mismatch in the EssencePlayerFrameTemplate),
-	-- so hiding/showing prdClassFrame directly fights with Blizzard's
-	-- ClassPowerBar:Setup() cycle.
-	if prd and prd.ClassFrameContainer then
-		if not hasClassFrame or not db.enableClassFrame then
-			prd.ClassFrameContainer:Hide()
+	if prd.HealthBarsContainer then
+		prd.HealthBarsContainer:SetShown(db.enableHealthBar)
+	end
+	if prd.PowerBar then
+		prd.PowerBar:SetShown(db.enablePowerBar)
+	end
+	if prd.AlternatePowerBar then
+		prd.AlternatePowerBar:SetShown(hasAltPowerBar and db.enableAltPowerBar)
+	end
+	prd:SetScale(db.displayScale / 100)
+
+	if prdClassFrame and prdClassFrame:IsVisible() then
+		if db.enableClassFrame then
+			ApplyClassFrameLayout(db)
 		else
-			prd.ClassFrameContainer:Show()
+			prdClassFrame:Hide()
 		end
 	end
-	ApplyClassFrameLayout(db)
 
-	-- ── Health text ──────────────────────────────────────────────────────
+	-- Health text
 	if healthText then
 		if not db.enableHealthText then
 			healthFrame:UnregisterEvent("UNIT_HEALTH")
@@ -189,25 +134,19 @@ local function ApplySettings(db)
 		else
 			healthText:SetFont(db.healthTextFont, db.healthTextSize,
 				BuildFontFlags(db.healthTextThickOutline, db.healthTextOutline, db.healthTextMono))
-
-			local hColor = CreateColorFromHexString(db.healthTextColor)
-			healthText:SetTextColor(hColor:GetRGBA())
-
-			local healthBar = PersonalResourceDisplayFrame
-				and PersonalResourceDisplayFrame.HealthBarsContainer
-				and PersonalResourceDisplayFrame.HealthBarsContainer.healthBar
-			if healthBar then
+			healthText:SetTextColor(CreateColorFromHexString(db.healthTextColor):GetRGBA())
+			local bar = prd and prd.HealthBarsContainer and prd.HealthBarsContainer.healthBar
+			if bar then
 				healthText:ClearAllPoints()
-				healthText:SetPoint(db.healthTextAnchor, healthBar, db.healthTextAnchor)
+				healthText:SetPoint(db.healthTextAnchor, bar, db.healthTextAnchor)
 			end
-
 			healthText:Show()
 			healthFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
 			healthText:SetText(AbbreviateNumbers(UnitHealth("player")))
 		end
 	end
 
-	-- ── Power text ───────────────────────────────────────────────────────
+	-- Power text
 	if powerText then
 		if not db.enablePowerText then
 			powerFrame:UnregisterEvent("UNIT_POWER_FREQUENT")
@@ -216,27 +155,20 @@ local function ApplySettings(db)
 		else
 			powerText:SetFont(db.powerTextFont, db.powerTextSize,
 				BuildFontFlags(db.powerTextThickOutline, db.powerTextOutline, db.powerTextMono))
-
-			local pColor = CreateColorFromHexString(db.powerTextColor)
-			powerText:SetTextColor(pColor:GetRGBA())
-
-			local powerBar = PersonalResourceDisplayFrame
-				and PersonalResourceDisplayFrame.PowerBar
-			if powerBar then
+			powerText:SetTextColor(CreateColorFromHexString(db.powerTextColor):GetRGBA())
+			local bar = prd and prd.PowerBar
+			if bar then
 				powerText:ClearAllPoints()
-				powerText:SetPoint(db.powerTextAnchor, powerBar, db.powerTextAnchor)
+				powerText:SetPoint(db.powerTextAnchor, bar, db.powerTextAnchor)
 			end
-
 			powerText:Show()
 			powerFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 			powerFrame:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
 			powerText:SetText(AbbreviateNumbers(UnitPower("player")))
 		end
 	end
-	-- ── Alternate power text ─────────────────────────────────────────────
-	-- Guard with hasAltPowerBar: altPowerText is created for every class because
-	-- AlternatePowerBar always exists in the XML, but we must not set an OnUpdate
-	-- for classes that never use it or the frame will fire every frame for nothing.
+
+	-- Alternate power text (OnUpdate-driven, only for DH/Evoker/Monk)
 	if hasAltPowerBar and altPowerText then
 		if not db.enableAltPowerText then
 			altPowerFrame:SetScript("OnUpdate", nil)
@@ -244,24 +176,19 @@ local function ApplySettings(db)
 		else
 			altPowerText:SetFont(db.altPowerTextFont, db.altPowerTextSize,
 				BuildFontFlags(db.altPowerTextThickOutline, db.altPowerTextOutline, db.altPowerTextMono))
-
-			local aColor = CreateColorFromHexString(db.altPowerTextColor)
-			altPowerText:SetTextColor(aColor:GetRGBA())
-
-			local altPowerBar = PersonalResourceDisplayFrame
-				and PersonalResourceDisplayFrame.AlternatePowerBar
-			if altPowerBar then
+			altPowerText:SetTextColor(CreateColorFromHexString(db.altPowerTextColor):GetRGBA())
+			local bar = prd and prd.AlternatePowerBar
+			if bar then
 				altPowerText:ClearAllPoints()
-				altPowerText:SetPoint(db.altPowerTextAnchor, altPowerBar, db.altPowerTextAnchor)
+				altPowerText:SetPoint(db.altPowerTextAnchor, bar, db.altPowerTextAnchor)
 			end
-
 			altPowerText:Show()
 			altPowerOptions = ALT_POWER_OPTIONS[db.altPowerTextDecimals or 1]
 			altPowerFrame:SetScript("OnUpdate", AltPowerOnUpdate)
 		end
 	end
 
-	-- ── Rune cooldown text (Death Knight only) ───────────────────────────
+	-- Rune cooldown text (Death Knight only)
 	if runeTexts[1] then
 		if not db.enableRuneCooldownText then
 			runeCooldownFrame:SetScript("OnUpdate", nil)
@@ -291,47 +218,41 @@ local function ApplySettings(db)
 		end
 	end
 end
--- Runs once when our addon finishes loading.  Using EventUtil.ContinueOnAddOnLoaded
--- is the canonical pattern recommended in Blizzard_ImplementationReadme.lua.
--- -----------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- ADDON_LOADED: DB defaults + settings registration (no frame manipulation)
+-- ---------------------------------------------------------------------------
+
 EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
-	-- Ensure saved-variable table exists and every key has a valid value.
-	-- Settings.RegisterAddOnSetting will also default-initialize nil keys, but
-	-- ApplySettings reads from db directly so we fill in any gaps now.
 	PersonalResourceOptionsDB = PersonalResourceOptionsDB or {}
 	local db = PersonalResourceOptionsDB
 
 	local defaults = {
-		-- Display
 		enableDisplay             = true,
 		enableHealthBar           = true,
 		enablePowerBar            = true,
 		enableAltPowerBar         = true,
 		enableClassFrame          = true,
 		displayScale              = 100,
-		-- Class frame
 		classFrameScale           = 100,
 		classFrameOffsetX         = 0,
 		classFrameOffsetY         = 0,
-		-- Health text
-		enableHealthText       = true,
-		healthTextAnchor       = "CENTER",
-		healthTextFont         = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-		healthTextSize         = 14,
-		healthTextOutline      = false,
-		healthTextThickOutline = true,
-		healthTextMono         = false,
-		healthTextColor        = "ffffffff",
-		-- Power text
-		enablePowerText        = true,
-		powerTextAnchor        = "CENTER",
-		powerTextFont          = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-		powerTextSize          = 14,
-		powerTextOutline       = false,
-		powerTextThickOutline  = true,
-		powerTextMono          = false,
-		powerTextColor         = "ffffffff",
-		-- Alternate power text
+		enableHealthText          = true,
+		healthTextAnchor          = "CENTER",
+		healthTextFont            = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+		healthTextSize            = 14,
+		healthTextOutline         = false,
+		healthTextThickOutline    = true,
+		healthTextMono            = false,
+		healthTextColor           = "ffffffff",
+		enablePowerText           = true,
+		powerTextAnchor           = "CENTER",
+		powerTextFont             = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+		powerTextSize             = 14,
+		powerTextOutline          = false,
+		powerTextThickOutline     = true,
+		powerTextMono             = false,
+		powerTextColor            = "ffffffff",
 		enableAltPowerText        = true,
 		altPowerTextAnchor        = "CENTER",
 		altPowerTextFont          = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
@@ -340,7 +261,6 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 		altPowerTextThickOutline  = true,
 		altPowerTextMono          = false,
 		altPowerTextColor         = "ffffffff",
-		-- Rune cooldown text (Death Knight)
 		enableRuneCooldownText       = true,
 		runeCooldownTextAnchor       = "CENTER",
 		runeCooldownTextFont         = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
@@ -356,68 +276,10 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 		end
 	end
 
-	-- Create FontStrings parented to their bars so they inherit show/hide state
-	-- and move with the bars automatically.
-	local healthBar = PersonalResourceDisplayFrame
-		and PersonalResourceDisplayFrame.HealthBarsContainer
-		and PersonalResourceDisplayFrame.HealthBarsContainer.healthBar
-	if healthBar then
-		healthText = healthBar:CreateFontString(nil, "OVERLAY")
-	end
-
-	local powerBar = PersonalResourceDisplayFrame
-		and PersonalResourceDisplayFrame.PowerBar
-	if powerBar then
-		powerText = powerBar:CreateFontString(nil, "OVERLAY")
-	end
-
-	-- AlternatePowerBar always exists in the XML (hidden by default); parent our
-	-- FontString to it so it inherits the bar's show/hide state automatically.
-	local altPowerBar = PersonalResourceDisplayFrame
-		and PersonalResourceDisplayFrame.AlternatePowerBar
-	if altPowerBar then
-		altPowerText = altPowerBar:CreateFontString(nil, "OVERLAY")
-	end
-
-	-- Hook bars so our disable preference is re-asserted whenever Blizzard
-	-- re-shows them.  HookScript leaves Blizzard's own OnShow logic intact.
-	local prdHook = PersonalResourceDisplayFrame
-	if prdHook then
-		prdHook:HookScript("OnShow", function()
-			if not db.enableDisplay then prdHook:Hide() end
-		end)
-		if prdHook.HealthBarsContainer then
-			prdHook.HealthBarsContainer:HookScript("OnShow", function()
-				if not db.enableDisplay or not db.enableHealthBar then
-					prdHook.HealthBarsContainer:Hide()
-				end
-			end)
-		end
-		if prdHook.PowerBar then
-			prdHook.PowerBar:HookScript("OnShow", function()
-				if not db.enableDisplay or not db.enablePowerBar then
-					prdHook.PowerBar:Hide()
-				end
-			end)
-		end
-		if prdHook.AlternatePowerBar then
-			prdHook.AlternatePowerBar:HookScript("OnShow", function()
-				if not db.enableDisplay or not db.enableAltPowerBar then
-					prdHook.AlternatePowerBar:Hide()
-				end
-			end)
-		end
-	end
-
-	-- Detect whether this character's class can ever have an alternate power bar.
-	-- Used by PRO.RegisterSettings to conditionally show the alt power section.
 	local classID = select(3, UnitClass("player"))
 	hasAltPowerBar = classID == Constants.UICharacterClasses.DemonHunter
 		or classID == Constants.UICharacterClasses.Evoker
 		or classID == Constants.UICharacterClasses.Monk
-
-	-- Detect whether this class has a prdClassFrame at all, and whether it is
-	-- a cooldown-based resource (only DK runes have GetRuneCooldown support).
 	hasClassFrame = classID == Constants.UICharacterClasses.Paladin
 		or classID == Constants.UICharacterClasses.Rogue
 		or classID == Constants.UICharacterClasses.DeathKnight
@@ -428,9 +290,38 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 		or classID == Constants.UICharacterClasses.Evoker
 	local hasCooldownClassFrame = classID == Constants.UICharacterClasses.DeathKnight
 
-	-- For DK: create one FontString per rune for cooldown countdown display.
-	-- prdClassFrame is the global frame created by Blizzard_PersonalResourceDisplay.
-	if hasCooldownClassFrame and prdClassFrame and prdClassFrame.Runes then
+	categoryID = PRO.RegisterSettings(db, function()
+		ApplySettings(db)
+	end, hasAltPowerBar, hasClassFrame, hasCooldownClassFrame)
+end)
+
+-- ---------------------------------------------------------------------------
+-- PLAYER_LOGIN: create FontStrings, install hooks, apply settings
+-- ---------------------------------------------------------------------------
+
+local loginFrame = CreateFrame("Frame")
+loginFrame:RegisterEvent("PLAYER_LOGIN")
+loginFrame:SetScript("OnEvent", function(self)
+	self:UnregisterEvent("PLAYER_LOGIN")
+
+	local db = PersonalResourceOptionsDB
+	local prd = PersonalResourceDisplayFrame
+	if not prd or not db then return end
+
+	local healthBar = prd.HealthBarsContainer and prd.HealthBarsContainer.healthBar
+	if healthBar then
+		healthText = healthBar:CreateFontString(nil, "OVERLAY")
+	end
+	if prd.PowerBar then
+		powerText = prd.PowerBar:CreateFontString(nil, "OVERLAY")
+	end
+	if prd.AlternatePowerBar then
+		altPowerText = prd.AlternatePowerBar:CreateFontString(nil, "OVERLAY")
+	end
+
+	-- DK rune cooldown FontStrings
+	if select(3, UnitClass("player")) == Constants.UICharacterClasses.DeathKnight
+		and prdClassFrame and prdClassFrame.Runes then
 		for i = 1, 6 do
 			local rune = prdClassFrame.Runes[i]
 			if rune then
@@ -439,46 +330,64 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 		end
 	end
 
-	-- Maintain our class frame preferences when Blizzard re-shows things.
-	-- ClassFrameContainer hook mirrors the pattern used for the other bars.
-	-- prdClassFrame hook only applies layout; we no longer call Hide() on
-	-- it directly because that fights with ClassPowerBar:Setup()'s own
-	-- SetShown(false) / Show() cycle (DRACTHYR vs EVOKER mismatch).
-	if hasClassFrame then
-		local classContainer = PersonalResourceDisplayFrame
-			and PersonalResourceDisplayFrame.ClassFrameContainer
-		if classContainer then
-			classContainer:HookScript("OnShow", function()
-				if not db.enableDisplay or not db.enableClassFrame then
-					classContainer:Hide()
-				end
-			end)
+	prd:HookScript("OnShow", function()
+		if not db.enableDisplay then
+			prd:Hide()
+			return
 		end
-		if prdClassFrame then
-			prdClassFrame:HookScript("OnShow", function()
-				if db.enableDisplay and db.enableClassFrame then
-					ApplyClassFrameLayout(db)
-				end
-			end)
+		if prd.HealthBarsContainer and not db.enableHealthBar then
+			prd.HealthBarsContainer:Hide()
 		end
+		if prd.PowerBar and not db.enablePowerBar then
+			prd.PowerBar:Hide()
+		end
+		if prd.AlternatePowerBar and (not hasAltPowerBar or not db.enableAltPowerBar) then
+			prd.AlternatePowerBar:Hide()
+		end
+		if hasClassFrame and prdClassFrame then
+			prdClassFrame:SetShown(db.enableClassFrame)
+			if db.enableClassFrame then
+				ApplyClassFrameLayout(db)
+			end
+		end
+	end)
+
+	if prd.HealthBarsContainer then
+		prd.HealthBarsContainer:HookScript("OnShow", function()
+			if not db.enableDisplay or not db.enableHealthBar then
+				prd.HealthBarsContainer:Hide()
+			end
+		end)
+	end
+	if prd.PowerBar then
+		prd.PowerBar:HookScript("OnShow", function()
+			if not db.enableDisplay or not db.enablePowerBar then
+				prd.PowerBar:Hide()
+			end
+		end)
+	end
+	if prd.AlternatePowerBar then
+		prd.AlternatePowerBar:HookScript("OnShow", function()
+			if not db.enableDisplay or not db.enableAltPowerBar then
+				prd.AlternatePowerBar:Hide()
+			end
+		end)
+	end
+	if hasClassFrame and prdClassFrame then
+		prdClassFrame:HookScript("OnShow", function()
+			if db.enableDisplay and db.enableClassFrame then
+				ApplyClassFrameLayout(db)
+			end
+		end)
 	end
 
-	-- Register the Blizzard Settings panel (defined in Settings.lua).
-	-- The callback re-applies all settings whenever any value is committed.
-	categoryID = PRO.RegisterSettings(db, function()
-		ApplySettings(db)
-	end, hasAltPowerBar, hasClassFrame, hasCooldownClassFrame)
-
-	-- Reflect stored settings on the FontString for the current session.
 	ApplySettings(db)
 end)
 
--- -----------------------------------------------------------------------------
--- Settings panel opener
--- OpenSettingsPanel() is a protected function; calling it in combat triggers
--- ADDON_ACTION_BLOCKED.  We defer the open until PLAYER_REGEN_ENABLED when the
--- player is still in combat lockdown.
--- -----------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Settings panel opener (deferred to out-of-combat if needed)
+-- ---------------------------------------------------------------------------
+
 local pendingSettingsOpen = false
 
 local combatEndFrame = CreateFrame("Frame")
@@ -502,20 +411,11 @@ local function OpenSettings()
 	end
 end
 
--- -----------------------------------------------------------------------------
--- Slash command  /pro  →  opens the addon settings panel
--- -----------------------------------------------------------------------------
 SLASH_PERSONALRESOURCEOPTIONS1 = "/pro"
 SlashCmdList["PERSONALRESOURCEOPTIONS"] = function()
 	OpenSettings()
 end
 
--- -----------------------------------------------------------------------------
--- Addon Compartment click handler
--- Declared global for the Blizzard Addon Compartment system, which looks up
--- this function by name (via AddonCompartmentFunc in the .toc file) and calls
--- it with (addonName, buttonName) on each click.
--- -----------------------------------------------------------------------------
-function PRO_OnAddonCompartmentClick(addonName, buttonName)
+function PRO_OnAddonCompartmentClick()
 	OpenSettings()
 end
