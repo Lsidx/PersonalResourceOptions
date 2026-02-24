@@ -46,8 +46,9 @@ StaticPopupDialogs["PRO_NEW_PROFILE"] = {
 	end,
 	EditBoxOnEnterPressed = function(editBox)
 		local dialog = editBox:GetParent()
-		if dialog:GetButton1():IsEnabled() then
-			dialog.button1:Click()
+		local btn = dialog:GetButton1()
+		if btn and btn:IsEnabled() then
+			btn:Click()
 		end
 	end,
 	EditBoxOnTextChanged = StaticPopup_StandardNonEmptyTextHandler,
@@ -77,10 +78,12 @@ StaticPopupDialogs["PRO_EXPORT_PROFILE"] = {
 	button1 = DONE,
 	hasEditBox = 1,
 	OnShow = function(dialog)
+		local editBox = dialog:GetEditBox()
+		editBox:SetMaxLetters(0)
 		local encoded = PRO.ExportProfile()
-		dialog:GetEditBox():SetText(encoded)
-		dialog:GetEditBox():HighlightText()
-		dialog:GetEditBox():SetFocus()
+		editBox:SetText(encoded)
+		editBox:HighlightText()
+		editBox:SetFocus()
 	end,
 	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
 	hideOnEscape = 1,
@@ -94,29 +97,103 @@ StaticPopupDialogs["PRO_IMPORT_PROFILE"] = {
 	button2 = CANCEL,
 	hasEditBox = 1,
 	OnShow = function(dialog)
-		dialog:GetEditBox():SetFocus()
+		local editBox = dialog:GetEditBox()
+		editBox:SetMaxLetters(0)
+		editBox:SetFocus()
 	end,
 	OnAccept = function(dialog)
 		local encoded = strtrim(dialog:GetEditBox():GetText())
 		if encoded == "" then return end
-		local name = "Imported"
-		local i = 1
-		while PRO.savedDB.profiles[name] do
-			i = i + 1
-			name = "Imported " .. i
-		end
-		local success, err = PRO.ImportProfile(name, encoded)
-		if success then
-			print("|cff00ff00PRO:|r Profile imported as '" .. name .. "'.")
-			PRO.profileSetting:SetValue(name)
-		else
+		local data, err = PRO.ValidateImport(encoded)
+		if not data then
 			print("|cffff6666PRO:|r Import failed: " .. (err or "unknown error"))
+			return
+		end
+		PRO._pendingImportData = data
+		StaticPopup_Show("PRO_IMPORT_NAME")
+	end,
+	EditBoxOnEnterPressed = function(editBox)
+		local dialog = editBox:GetParent()
+		local btn = dialog:GetButton1()
+		if btn and btn:IsEnabled() then
+			btn:Click()
+		end
+	end,
+	EditBoxOnTextChanged = StaticPopup_StandardNonEmptyTextHandler,
+	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
+	hideOnEscape = 1,
+	timeout = 0,
+	whileDead = 1,
+}
+
+StaticPopupDialogs["PRO_IMPORT_NAME"] = {
+	text = "Enter a name for the imported profile (or leave blank for auto-name):",
+	button1 = ACCEPT,
+	button2 = CANCEL,
+	hasEditBox = 1,
+	maxLetters = 32,
+	OnShow = function(dialog)
+		local editBox = dialog:GetEditBox()
+		editBox:SetText("")
+		editBox:SetFocus()
+	end,
+	OnAccept = function(dialog)
+		local data = PRO._pendingImportData
+		PRO._pendingImportData = nil
+		if not data then return end
+		local input = strtrim(dialog:GetEditBox():GetText())
+		local name
+		if input ~= "" and not PRO.savedDB.profiles[input] then
+			name = input
+		else
+			if input ~= "" then
+				print("|cffff6666PRO:|r '" .. input .. "' already exists, using auto-name.")
+			end
+			name = PRO.GenerateImportName()
+		end
+		PRO.StoreImportedProfile(name, data)
+		print("|cff00ff00PRO:|r Profile imported as '" .. name .. "'.")
+		PRO.profileSetting:SetValue(name)
+	end,
+	OnCancel = function()
+		PRO._pendingImportData = nil
+	end,
+	EditBoxOnEnterPressed = function(editBox)
+		local dialog = editBox:GetParent()
+		local btn = dialog:GetButton1()
+		if btn then
+			btn:Click()
+		end
+	end,
+	EditBoxOnEscapePressed = StaticPopup_StandardEditBoxOnEscapePressed,
+	hideOnEscape = 1,
+	timeout = 0,
+	whileDead = 1,
+}
+
+StaticPopupDialogs["PRO_RENAME_PROFILE"] = {
+	text = "Enter a new name for profile '%s':",
+	button1 = ACCEPT,
+	button2 = CANCEL,
+	hasEditBox = 1,
+	maxLetters = 32,
+	OnShow = function(dialog)
+		dialog:GetEditBox():SetFocus()
+	end,
+	OnAccept = function(dialog, oldName)
+		local newName = strtrim(dialog:GetEditBox():GetText())
+		if newName == "" then return end
+		if PRO.RenameProfile(oldName, newName) then
+			print("|cff00ff00PRO:|r Profile renamed to '" .. newName .. "'.")
+		else
+			print("|cffff6666PRO:|r Could not rename: a profile named '" .. newName .. "' already exists.")
 		end
 	end,
 	EditBoxOnEnterPressed = function(editBox)
 		local dialog = editBox:GetParent()
-		if dialog:GetButton1():IsEnabled() then
-			dialog.button1:Click()
+		local btn = dialog:GetButton1()
+		if btn and btn:IsEnabled() then
+			btn:Click()
 		end
 	end,
 	EditBoxOnTextChanged = StaticPopup_StandardNonEmptyTextHandler,
@@ -258,6 +335,17 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 			StaticPopup_Show("PRO_DELETE_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
 		end,
 		"Delete the current profile.", addSearchTags))
+
+	layout:AddInitializer(CreateSettingsButtonInitializer(
+		"", "Rename Profile",
+		function()
+			if PRO.currentProfileName == "Default" then
+				print("|cffff6666PRO:|r The Default profile cannot be renamed.")
+				return
+			end
+			StaticPopup_Show("PRO_RENAME_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
+		end,
+		"Rename the current profile.", addSearchTags))
 
 	local function GetCopyOptions()
 		local c = Settings.CreateControlTextContainer()

@@ -504,20 +504,71 @@ end
 function PRO.ExportProfile()
 	UnflattenToProfile(PRO.db, PRO.currentProfile, PRO.classID)
 	local data = CopyTable(PRO.currentProfile)
-	local cbor = C_EncodingUtil.SerializeCBOR(data)
-	local compressed = C_EncodingUtil.CompressString(cbor, Enum.CompressionType.Deflate)
-	return C_EncodingUtil.EncodeBase64(compressed)
+	local ok, result = pcall(function()
+		return C_EncodingUtil.EncodeBase64(C_EncodingUtil.SerializeCBOR(data))
+	end)
+	if ok then
+		return result
+	else
+		print("|cffff6666PRO:|r Export failed: " .. tostring(result))
+		return ""
+	end
 end
 
 --- Import a profile from a Base64-encoded string.
 function PRO.ImportProfile(name, encoded)
-	local ok, compressed = pcall(C_EncodingUtil.DecodeBase64, encoded)
-	if not ok or not compressed then return false, "Invalid Base64 data." end
-	local ok2, cbor = pcall(C_EncodingUtil.DecompressString, compressed, Enum.CompressionType.Deflate)
-	if not ok2 or not cbor then return false, "Decompression failed." end
-	local ok3, data = pcall(C_EncodingUtil.DeserializeCBOR, cbor)
-	if not ok3 or type(data) ~= "table" then return false, "Invalid profile data." end
+	local decoded = C_EncodingUtil.DecodeBase64(encoded)
+	if not decoded then return false, "Invalid Base64 data." end
+	local ok, data = pcall(C_EncodingUtil.DeserializeCBOR, decoded)
+	if not ok or type(data) ~= "table" then return false, "Invalid profile data." end
 	PRO.savedDB.profiles[name] = data
+	return true
+end
+
+--- Validate an encoded profile string without storing it.
+function PRO.ValidateImport(encoded)
+	local decoded = C_EncodingUtil.DecodeBase64(encoded)
+	if not decoded then return nil, "Invalid Base64 data." end
+	local ok, data = pcall(C_EncodingUtil.DeserializeCBOR, decoded)
+	if not ok or type(data) ~= "table" then return nil, "Invalid profile data." end
+	return data
+end
+
+--- Store a validated profile table under the given name.
+function PRO.StoreImportedProfile(name, data)
+	PRO.savedDB.profiles[name] = data
+end
+
+--- Generate a unique auto-name for an imported profile.
+function PRO.GenerateImportName()
+	local name = "Imported"
+	local i = 1
+	while PRO.savedDB.profiles[name] do
+		i = i + 1
+		name = "Imported " .. i
+	end
+	return name
+end
+
+--- Rename a profile (Default cannot be renamed).
+function PRO.RenameProfile(oldName, newName)
+	if oldName == "Default" then return false end
+	if not newName or newName == "" then return false end
+	if PRO.savedDB.profiles[newName] then return false end
+	if not PRO.savedDB.profiles[oldName] then return false end
+	PRO.savedDB.profiles[newName] = PRO.savedDB.profiles[oldName]
+	PRO.savedDB.profiles[oldName] = nil
+	for charKey, pName in pairs(PRO.savedDB.characterProfiles) do
+		if pName == oldName then
+			PRO.savedDB.characterProfiles[charKey] = newName
+		end
+	end
+	if PRO.currentProfileName == oldName then
+		PRO.currentProfileName = newName
+		if PRO.profileSetting then
+			PRO.profileSetting:SetValue(newName)
+		end
+	end
 	return true
 end
 
