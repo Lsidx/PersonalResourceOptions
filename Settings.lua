@@ -9,15 +9,9 @@ local CATEGORY_NAME = "Personal Resource Options"
 local FONT_DEFAULT = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF"
 
 local ANCHOR_OPTIONS = {
-	{ value = "TOPLEFT",     label = "Top Left"     },
-	{ value = "TOP",         label = "Top"          },
-	{ value = "TOPRIGHT",    label = "Top Right"    },
 	{ value = "LEFT",        label = "Left"         },
 	{ value = "CENTER",      label = "Center"       },
 	{ value = "RIGHT",       label = "Right"        },
-	{ value = "BOTTOMLEFT",  label = "Bottom Left"  },
-	{ value = "BOTTOM",      label = "Bottom"       },
-	{ value = "BOTTOMRIGHT", label = "Bottom Right" },
 }
 
 local FONT_OPTIONS = {
