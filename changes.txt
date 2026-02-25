@@ -1,0 +1,6 @@
+@project-version@
+- Fixed multiple bugs.
+- Added profile management.
+- Centered rune cooldown text when font flags are used.
+- Removed unnecessary anchor options.
+- Added this changelog and hopefully figured out pushing to curseforge.

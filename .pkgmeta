@@ -1,4 +1,3 @@
 package-as: PersonalResourceOptions
 
-ignore:
-  - .vscode
+manual-changelog: changes.txt
