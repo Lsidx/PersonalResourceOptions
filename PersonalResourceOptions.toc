@@ -20,5 +20,14 @@
 ## AddonCompartmentFunc: PRO_OnAddonCompartmentClick
 ## IconTexture: Interface\AddOns\PersonalResourceOptions\Assets\icon
 
+Constants.lua
+Utilities.lua
+TextOverlayMixin.lua
+HealthTextOverlay.lua
+PowerTextOverlay.lua
+AltPowerTextOverlay.lua
+RuneCooldownOverlay.lua
+ProfileManager.lua
+DisplayManager.lua
 Settings.lua
 Core.lua

@@ -1,4 +1,4 @@
-@project-version@
+@project-version@ changes:
 - Fixed multiple bugs.
 - Added profile management.
 - Centered rune cooldown text when font flags are used.
