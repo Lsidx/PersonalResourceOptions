@@ -42,7 +42,7 @@ end
 --- Check whether the overlay has been initialized.
 --- @return boolean
 function PRO.RuneCooldownOverlayMixin:IsCreated()
-	return self.runeTexts[1] ~= nil
+	return self.runeTexts and self.runeTexts[1] ~= nil
 end
 
 --- Apply rune cooldown text settings from the flat db.
