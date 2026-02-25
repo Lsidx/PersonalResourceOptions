@@ -45,7 +45,6 @@ local CLASS_SPECIFIC_KEYS = {
 	"runeCooldownTextFont",
 	"runeCooldownTextSize",
 	"runeCooldownTextOutline",
-	"runeCooldownTextThickOutline",
 	"runeCooldownTextMono",
 	"runeCooldownTextColor",
 }
@@ -69,24 +68,21 @@ local DEFAULTS = {
 	healthTextAnchor          = "CENTER",
 	healthTextFont            = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
 	healthTextSize            = 14,
-	healthTextOutline         = false,
-	healthTextThickOutline    = true,
+	healthTextOutline         = "THICKOUTLINE",
 	healthTextMono            = false,
 	healthTextColor           = "ffffffff",
 	enablePowerText           = true,
 	powerTextAnchor           = "CENTER",
 	powerTextFont             = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
 	powerTextSize             = 14,
-	powerTextOutline          = false,
-	powerTextThickOutline     = true,
+	powerTextOutline          = "THICKOUTLINE",
 	powerTextMono             = false,
 	powerTextColor            = "ffffffff",
 	enableAltPowerText        = true,
 	altPowerTextAnchor        = "CENTER",
 	altPowerTextFont          = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
 	altPowerTextSize          = 14,
-	altPowerTextOutline       = false,
-	altPowerTextThickOutline  = true,
+	altPowerTextOutline       = "THICKOUTLINE",
 	altPowerTextMono          = false,
 	altPowerTextColor         = "ffffffff",
 	altPowerTextDecimals      = 1,
@@ -94,8 +90,7 @@ local DEFAULTS = {
 	runeCooldownTextAnchor       = "CENTER",
 	runeCooldownTextFont         = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
 	runeCooldownTextSize         = 12,
-	runeCooldownTextOutline      = false,
-	runeCooldownTextThickOutline = true,
+	runeCooldownTextOutline      = "THICKOUTLINE",
 	runeCooldownTextMono         = false,
 	runeCooldownTextColor        = "ffffffff",
 }
@@ -136,15 +131,8 @@ end
 -- Helpers
 -- ---------------------------------------------------------------------------
 
-local function BuildFontFlags(thickOutline, outline, mono)
-	local flags
-	if thickOutline then
-		flags = "THICKOUTLINE"
-	elseif outline then
-		flags = "OUTLINE"
-	else
-		flags = ""
-	end
+local function BuildFontFlags(outline, mono)
+	local flags = (outline == "OUTLINE" or outline == "THICKOUTLINE") and outline or ""
 	if mono then
 		flags = (flags == "") and "MONOCHROME" or (flags .. ",MONOCHROME")
 	end
@@ -285,7 +273,7 @@ local function ApplySettings(db)
 			healthText:Hide()
 		else
 			healthText:SetFont(db.healthTextFont, db.healthTextSize,
-				BuildFontFlags(db.healthTextThickOutline, db.healthTextOutline, db.healthTextMono))
+				BuildFontFlags(db.healthTextOutline, db.healthTextMono))
 			healthText:SetTextColor(CreateColorFromHexString(db.healthTextColor):GetRGBA())
 			local bar = prd and prd.HealthBarsContainer and prd.HealthBarsContainer.healthBar
 			if bar then
@@ -306,7 +294,7 @@ local function ApplySettings(db)
 			powerText:Hide()
 		else
 			powerText:SetFont(db.powerTextFont, db.powerTextSize,
-				BuildFontFlags(db.powerTextThickOutline, db.powerTextOutline, db.powerTextMono))
+				BuildFontFlags(db.powerTextOutline, db.powerTextMono))
 			powerText:SetTextColor(CreateColorFromHexString(db.powerTextColor):GetRGBA())
 			local bar = prd and prd.PowerBar
 			if bar then
@@ -327,7 +315,7 @@ local function ApplySettings(db)
 			altPowerText:Hide()
 		else
 			altPowerText:SetFont(db.altPowerTextFont, db.altPowerTextSize,
-				BuildFontFlags(db.altPowerTextThickOutline, db.altPowerTextOutline, db.altPowerTextMono))
+				BuildFontFlags(db.altPowerTextOutline, db.altPowerTextMono))
 			altPowerText:SetTextColor(CreateColorFromHexString(db.altPowerTextColor):GetRGBA())
 			local bar = prd and prd.AlternatePowerBar
 			if bar then
@@ -348,10 +336,13 @@ local function ApplySettings(db)
 				if runeTexts[i] then runeTexts[i]:Hide() end
 			end
 		else
-			local flags = BuildFontFlags(
-				db.runeCooldownTextThickOutline,
-				db.runeCooldownTextOutline,
-				db.runeCooldownTextMono)
+			local flags = BuildFontFlags(db.runeCooldownTextOutline, db.runeCooldownTextMono)
+			local runeOffX, runeOffY = 0, 0
+			if db.runeCooldownTextOutline == "THICKOUTLINE" then
+				runeOffX, runeOffY = 0.6, -0.4
+			elseif db.runeCooldownTextOutline == "OUTLINE" then
+				runeOffX, runeOffY = 0.4, 0
+			end
 			local rColor = CreateColorFromHexString(db.runeCooldownTextColor)
 			for i = 1, 6 do
 				local t = runeTexts[i]
@@ -361,7 +352,7 @@ local function ApplySettings(db)
 					local rune = prdClassFrame and prdClassFrame.Runes and prdClassFrame.Runes[i]
 					if rune then
 						t:ClearAllPoints()
-						t:SetPoint(db.runeCooldownTextAnchor, rune, db.runeCooldownTextAnchor)
+						t:SetPoint(db.runeCooldownTextAnchor, rune, db.runeCooldownTextAnchor, runeOffX, runeOffY)
 					end
 					t:Show()
 				end
@@ -384,6 +375,46 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 	-- Migrate flat DB (v1) to profile structure (v2)
 	if not savedDB.schemaVersion or savedDB.schemaVersion < 2 then
 		MigrateToV2(savedDB, classID)
+	end
+
+	-- Migrate outline booleans to string enum (v2 → v3)
+	if savedDB.schemaVersion < 3 then
+		local OUTLINE_PREFIXES = { "healthText", "powerText", "altPowerText", "runeCooldownText" }
+		for _, profile in pairs(savedDB.profiles) do
+			-- Top-level (non-class-specific) keys
+			for _, pfx in ipairs(OUTLINE_PREFIXES) do
+				local oKey, tKey = pfx .. "Outline", pfx .. "ThickOutline"
+				if type(profile[oKey]) == "boolean" or type(profile[tKey]) == "boolean" then
+					if profile[tKey] then
+						profile[oKey] = "THICKOUTLINE"
+					elseif profile[oKey] then
+						profile[oKey] = "OUTLINE"
+					else
+						profile[oKey] = "NONE"
+					end
+					profile[tKey] = nil
+				end
+			end
+			-- Class-specific sub-tables
+			if profile.classSettings then
+				for _, cs in pairs(profile.classSettings) do
+					for _, pfx in ipairs(OUTLINE_PREFIXES) do
+						local oKey, tKey = pfx .. "Outline", pfx .. "ThickOutline"
+						if type(cs[oKey]) == "boolean" or type(cs[tKey]) == "boolean" then
+							if cs[tKey] then
+								cs[oKey] = "THICKOUTLINE"
+							elseif cs[oKey] then
+								cs[oKey] = "OUTLINE"
+							else
+								cs[oKey] = "NONE"
+							end
+							cs[tKey] = nil
+						end
+					end
+				end
+			end
+		end
+		savedDB.schemaVersion = 3
 	end
 
 	-- Ensure structure exists

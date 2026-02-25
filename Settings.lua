@@ -22,6 +22,12 @@ local FONT_OPTIONS = {
 	{ value = "Fonts\\SKURRI.TTF",   label = "Skurri"        },
 }
 
+local OUTLINE_OPTIONS = {
+	{ value = "NONE",         label = "None"          },
+	{ value = "OUTLINE",      label = "Outline"       },
+	{ value = "THICKOUTLINE", label = "Thick Outline" },
+}
+
 -- ---------------------------------------------------------------------------
 -- Profile management dialogs
 -- ---------------------------------------------------------------------------
@@ -227,6 +233,12 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		return c:GetData()
 	end
 
+	local function GetOutlineOptions()
+		local c = Settings.CreateControlTextContainer()
+		for _, o in ipairs(OUTLINE_OPTIONS) do c:Add(o.value, o.label) end
+		return c:GetData()
+	end
+
 	-- ── Generic control helpers (close over category / db / onChanged) ────
 
 	local function AddCheckbox(settingKey, dbKey, label, tooltip, default, parentInit, predicate)
@@ -264,8 +276,8 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 	end
 
 	-- ── Text-overlay section helper ───────────────────────────────────────
-	-- Registers the 8 controls common to every text overlay:
-	--   enable checkbox -> anchor -> font -> size -> outline -> thick outline -> mono -> color
+	-- Registers the 7 controls common to every text overlay:
+	--   enable checkbox -> anchor -> font -> size -> outline -> mono -> color
 	--
 	-- prefix        : db key prefix, e.g. "health", "power", "altPower", "runeCooldown"
 	-- labelPrefix   : UI label prefix, e.g. "", "Power ", "Alt Power ", "Rune Cooldown "
@@ -289,8 +301,7 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		AddDropdown   (K..p.."Anchor",       p.."Anchor",       labelPrefix.."Anchor Point", "Where on the bar the text is anchored.",     "CENTER",     GetAnchorOptions, enableInit, leafPred)
 		AddDropdown   (K..p.."Font",         p.."Font",         labelPrefix.."Font",          "Typeface used for the text.",                FONT_DEFAULT, GetFontOptions,   enableInit, leafPred)
 		AddSlider     (K..p.."Size",         p.."Size",         labelPrefix.."Text Size",     "Text size in points (6-32).",                defaultSize,  6, 32, 1,         enableInit, leafPred)
-		AddCheckbox   (K..p.."Outline",      p.."Outline",      labelPrefix.."Outline",       "Apply a thin outline to the text.",          false,                           enableInit, leafPred)
-		AddCheckbox   (K..p.."ThickOutline", p.."ThickOutline", labelPrefix.."Thick Outline", "Apply a thick outline (overrides Outline).", false,                           enableInit, leafPred)
+		AddDropdown   (K..p.."Outline",      p.."Outline",      labelPrefix.."Outline",       "Outline thickness applied to the text.",     "THICKOUTLINE", GetOutlineOptions, enableInit, leafPred)
 		AddCheckbox   (K..p.."Mono",         p.."Mono",         labelPrefix.."Monochrome",    "Render the text without anti-aliasing.",     false,                           enableInit, leafPred)
 		AddColorSwatch(K..p.."Color",        p.."Color",        labelPrefix.."Text Color",    "Color of the text.",                                                           enableInit, leafPred)
 		return enableInit
