@@ -35,15 +35,24 @@ EventUtil.ContinueOnAddOnLoaded(ADDON_NAME, function()
 		or classID == Constants.UICharacterClasses.Evoker
 	local hasCooldownClassFrame = classID == Constants.UICharacterClasses.DeathKnight
 
-	-- Callback wired into both Settings and profile CRUD
+	-- Callback wired into both Settings and profile CRUD.
+	-- Deferred via C_Timer.After(0) to break the taint chain: the
+	-- callback fires inside Blizzard's Settings execution context, and
+	-- ApplySettings touches protected nameplate frames. Running it in a
+	-- fresh context prevents the addon's frame modifications from
+	-- tainting the Settings system (which would block later SetCVar calls).
 	local function OnSettingChanged()
 		PRO.profileManager:UnflattenToProfile(db, PRO.currentProfile, PRO.classID)
-		displayManager:ApplySettings(db)
+		C_Timer.After(0, function()
+			displayManager:ApplySettings(db)
+		end)
 	end
 
 	-- Store callback so ProfileManager CRUD wrappers can invoke it
 	PRO.applyCallback = function(flatDb)
-		displayManager:ApplySettings(flatDb)
+		C_Timer.After(0, function()
+			displayManager:ApplySettings(flatDb)
+		end)
 	end
 
 	categoryID = PRO.RegisterSettings(db, OnSettingChanged, hasAltPowerBar, hasClassFrame, hasCooldownClassFrame)
@@ -60,6 +69,48 @@ loginFrame:SetScript("OnEvent", function(self)
 
 	local db = PRO.db
 	if not PersonalResourceDisplayFrame or not db then return end
+
+	-- When override mode is off, sync enableDisplay from the CVar so the
+	-- addon reflects Options > Combat > Personal Resource Display.
+	-- When override mode is on, we ignore the CVar and keep our own value.
+	if not db.overrideDisplay then
+		db.enableDisplay = C_CVar.GetCVar(PRO.PRD_ENABLED_CVAR) == "1"
+	end
+
+	-- Listen for external CVar changes (e.g. Blizzard's Combat settings)
+	-- and update db + settings UI to stay in sync, but only when not
+	-- overriding. Deferred to a fresh context and guarded against combat
+	-- to avoid tainting Blizzard's Settings call chain.
+	local syncPending = false
+	local function SyncEnableDisplayFromCVar()
+		syncPending = false
+		if db.overrideDisplay then return end
+		if InCombatLockdown() then
+			syncPending = true
+			return
+		end
+		local enabled = C_CVar.GetCVar(PRO.PRD_ENABLED_CVAR) == "1"
+		if db.enableDisplay ~= enabled then
+			db.enableDisplay = enabled
+			if PRO.enableDisplaySetting then
+				PRO.enableDisplaySetting:SetValue(enabled)
+			end
+		end
+	end
+
+	CVarCallbackRegistry:RegisterCallback(PRO.PRD_ENABLED_CVAR, function()
+		if db.overrideDisplay then return end
+		C_Timer.After(0, SyncEnableDisplayFromCVar)
+	end)
+
+	-- If a CVar change arrived during combat, apply it once we leave.
+	local syncRegenFrame = CreateFrame("Frame")
+	syncRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	syncRegenFrame:SetScript("OnEvent", function()
+		if syncPending then
+			SyncEnableDisplayFromCVar()
+		end
+	end)
 
 	displayManager:Init(db, hasAltPowerBar, hasClassFrame)
 	displayManager:ApplySettings(db)

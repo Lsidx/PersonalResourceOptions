@@ -219,6 +219,23 @@ StaticPopupDialogs["PRO_RENAME_PROFILE"] = {
 function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasCooldownClassFrame)
 	local category, layout = Settings.RegisterVerticalLayoutCategory(CATEGORY_NAME)
 
+	-- ── Combat-lockdown predicate applied to all controls ─────────────────
+	-- Disables (greys out) every setting while the player is in combat,
+	-- since protected nameplate frames cannot be modified from addon code.
+	local function NotInCombat()
+		return not InCombatLockdown()
+	end
+
+	-- ── Spec-aware predicate for alternate power bar ────────────────────
+	-- Blizzard sets alternatePowerRequirementsMet on the PRD's AlternatePowerBar
+	-- widget based on the current spec (Brewmaster Monk, Vengeance DH, Augmentation
+	-- Evoker).  We use this to hide alt-power settings for specs that never see the bar.
+	local function SpecUsesAltPower()
+		local prd = PersonalResourceDisplayFrame
+		return prd and prd.AlternatePowerBar
+			and prd.AlternatePowerBar.alternatePowerRequirementsMet == true
+	end
+
 	-- ── Shared option-list builders ───────────────────────────────────────
 
 	local function GetAnchorOptions()
@@ -245,6 +262,9 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		local s = Settings.RegisterAddOnSetting(category, settingKey, dbKey, db, Settings.VarType.Boolean, label, default)
 		local i = Settings.CreateCheckbox(category, s, tooltip)
 		if parentInit then i:SetParentInitializer(parentInit, predicate) end
+		i:AddModifyPredicate(NotInCombat)
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
 		s:SetValueChangedCallback(onChanged)
 		return i
 	end
@@ -253,6 +273,9 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		local s = Settings.RegisterAddOnSetting(category, settingKey, dbKey, db, Settings.VarType.String, label, default)
 		local i = Settings.CreateDropdown(category, s, getOptions, tooltip)
 		if parentInit then i:SetParentInitializer(parentInit, predicate) end
+		i:AddModifyPredicate(NotInCombat)
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
 		s:SetValueChangedCallback(onChanged)
 		return i
 	end
@@ -263,6 +286,9 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		opts:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right)
 		local i = Settings.CreateSlider(category, s, opts, tooltip)
 		if parentInit then i:SetParentInitializer(parentInit, predicate) end
+		i:AddModifyPredicate(NotInCombat)
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
 		s:SetValueChangedCallback(onChanged)
 		return i
 	end
@@ -271,6 +297,9 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		local s = Settings.RegisterAddOnSetting(category, settingKey, dbKey, db, Settings.VarType.String, label, "ffffffff")
 		local i = Settings.CreateColorSwatch(category, s, tooltip)
 		if parentInit then i:SetParentInitializer(parentInit, predicate) end
+		i:AddModifyPredicate(NotInCombat)
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+		i:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
 		s:SetValueChangedCallback(onChanged)
 		return i
 	end
@@ -288,7 +317,7 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 	-- parentPred    : predicate for parentInit (must check full ancestor chain)
 
 	local function AddTextSection(prefix, labelPrefix, enableLabel, enableTooltip,
-	                              defaultSize, parentInit, parentPred)
+	                              defaultSize, parentInit, parentPred, shownPred, shownEvent)
 		local cap = prefix:sub(1, 1):upper() .. prefix:sub(2)
 		local ep  = "enable" .. cap .. "Text"  -- e.g. "enableHealthText"
 		local p   = prefix .. "Text"            -- e.g. "healthText"
@@ -298,13 +327,52 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 		local function leafPred() return parentPred() and db[ep] end
 
-		AddDropdown   (K..p.."Anchor",       p.."Anchor",       labelPrefix.."Anchor Point", "Where on the bar the text is anchored.",     "CENTER",     GetAnchorOptions, enableInit, leafPred)
-		AddDropdown   (K..p.."Font",         p.."Font",         labelPrefix.."Font",          "Typeface used for the text.",                FONT_DEFAULT, GetFontOptions,   enableInit, leafPred)
-		AddSlider     (K..p.."Size",         p.."Size",         labelPrefix.."Text Size",     "Text size in points (6-32).",                defaultSize,  6, 32, 1,         enableInit, leafPred)
-		AddDropdown   (K..p.."Outline",      p.."Outline",      labelPrefix.."Outline",       "Outline thickness applied to the text.",     "THICKOUTLINE", GetOutlineOptions, enableInit, leafPred)
-		AddCheckbox   (K..p.."Mono",         p.."Mono",         labelPrefix.."Monochrome",    "Render the text without anti-aliasing.",     false,                           enableInit, leafPred)
-		AddColorSwatch(K..p.."Color",        p.."Color",        labelPrefix.."Text Color",    "Color of the text.",                                                           enableInit, leafPred)
+		local i1 = AddDropdown   (K..p.."Anchor",       p.."Anchor",       labelPrefix.."Anchor Point", "Where on the bar the text is anchored.",     "CENTER",     GetAnchorOptions, enableInit, leafPred)
+		local i2 = AddDropdown   (K..p.."Font",         p.."Font",         labelPrefix.."Font",          "Typeface used for the text.",                FONT_DEFAULT, GetFontOptions,   enableInit, leafPred)
+		local i3 = AddSlider     (K..p.."Size",         p.."Size",         labelPrefix.."Text Size",     "Text size in points (6-32).",                defaultSize,  6, 32, 1,         enableInit, leafPred)
+		local i4 = AddDropdown   (K..p.."Outline",      p.."Outline",      labelPrefix.."Outline",       "Outline thickness applied to the text.",     "THICKOUTLINE", GetOutlineOptions, enableInit, leafPred)
+		local i5 = AddCheckbox   (K..p.."Mono",         p.."Mono",         labelPrefix.."Monochrome",    "Render the text without anti-aliasing.",     false,                           enableInit, leafPred)
+		local i6 = AddColorSwatch(K..p.."Color",        p.."Color",        labelPrefix.."Text Color",    "Color of the text.",                                                           enableInit, leafPred)
+
+		if shownPred then
+			for _, init in ipairs({enableInit, i1, i2, i3, i4, i5, i6}) do
+				init:AddShownPredicate(shownPred)
+				if shownEvent then
+					init:AddEvaluateStateFrameEvent(shownEvent)
+				end
+			end
+		end
+
 		return enableInit
+	end
+
+	-- ── Button helper (combat-disabled) ─────────────────────────────────
+	-- Button controls inherit SettingsListElementMixin (not SettingsControlMixin),
+	-- so AddModifyPredicate has no effect on them.  We flag our initializers
+	-- and install a one-time global hook on the mixin's EvaluateState to
+	-- disable them during combat.
+
+	if not SettingsButtonControlMixin._proCombatHooked then
+		hooksecurefunc(SettingsButtonControlMixin, "EvaluateState", function(self)
+			local init = self:GetElementData()
+			if init and init._proCombatDisable and InCombatLockdown() then
+				self.Button:SetEnabled(false)
+				self:DisplayEnabled(false)
+			end
+		end)
+		SettingsButtonControlMixin._proCombatHooked = true
+	end
+
+	local function AddButton(label, buttonText, onClick, tooltip)
+		local safeClick = function(...)
+			if InCombatLockdown() then return end
+			onClick(...)
+		end
+		local init = CreateSettingsButtonInitializer(label, buttonText, safeClick, tooltip, true)
+		init:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+		init:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
+		init._proCombatDisable = true
+		layout:AddInitializer(init)
 	end
 
 	-- ═════════════════════════════════════════════════════════════════════
@@ -325,38 +393,12 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		Settings.VarType.String, "Active Profile", "Default",
 		function() return PRO.currentProfileName end,
 		function(name) PRO.SwitchProfile(name) end)
-	Settings.CreateDropdown(category, profileSetting, GetProfileOptions,
+	local profileInit = Settings.CreateDropdown(category, profileSetting, GetProfileOptions,
 		"Select the active profile for this character.")
+	profileInit:AddModifyPredicate(NotInCombat)
+	profileInit:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+	profileInit:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
 	PRO.profileSetting = profileSetting
-
-	local addSearchTags = true
-
-	layout:AddInitializer(CreateSettingsButtonInitializer(
-		"", "New Profile",
-		function() StaticPopup_Show("PRO_NEW_PROFILE") end,
-		"Create a new empty profile.", addSearchTags))
-
-	layout:AddInitializer(CreateSettingsButtonInitializer(
-		"", "Delete Profile",
-		function()
-			if PRO.currentProfileName == "Default" then
-				print("|cffff6666PRO:|r The Default profile cannot be deleted.")
-				return
-			end
-			StaticPopup_Show("PRO_DELETE_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
-		end,
-		"Delete the current profile.", addSearchTags))
-
-	layout:AddInitializer(CreateSettingsButtonInitializer(
-		"", "Rename Profile",
-		function()
-			if PRO.currentProfileName == "Default" then
-				print("|cffff6666PRO:|r The Default profile cannot be renamed.")
-				return
-			end
-			StaticPopup_Show("PRO_RENAME_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
-		end,
-		"Rename the current profile.", addSearchTags))
 
 	local function GetCopyOptions()
 		local c = Settings.CreateControlTextContainer()
@@ -369,25 +411,53 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 	end
 
 	local copySetting = Settings.RegisterProxySetting(category, "PRO_COPY_FROM",
-		Settings.VarType.String, "Copy From", "",
+		Settings.VarType.String, "Copy Settings From", "",
 		function() return "" end,
 		function(name)
 			if name ~= "" then
 				PRO.CopyProfile(name)
 			end
 		end)
-	Settings.CreateDropdown(category, copySetting, GetCopyOptions,
-		"Copy all settings from another profile into the current one.")
+	local copyInit = Settings.CreateDropdown(category, copySetting, GetCopyOptions,
+		"Immediately copies all settings from the selected profile into the active profile.")
+	copyInit.getSelectionTextFunc = function()
+		return "Select a profile..."
+	end
+	copyInit:AddModifyPredicate(NotInCombat)
+	copyInit:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+	copyInit:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
 
-	layout:AddInitializer(CreateSettingsButtonInitializer(
-		"", "Export Profile",
+	AddButton("", "New Profile",
+		function() StaticPopup_Show("PRO_NEW_PROFILE") end,
+		"Create a new empty profile.")
+
+	AddButton("", "Delete Profile",
+		function()
+			if PRO.currentProfileName == "Default" then
+				print("|cffff6666PRO:|r The Default profile cannot be deleted.")
+				return
+			end
+			StaticPopup_Show("PRO_DELETE_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
+		end,
+		"Delete the current profile.")
+
+	AddButton("", "Rename Profile",
+		function()
+			if PRO.currentProfileName == "Default" then
+				print("|cffff6666PRO:|r The Default profile cannot be renamed.")
+				return
+			end
+			StaticPopup_Show("PRO_RENAME_PROFILE", PRO.currentProfileName, nil, PRO.currentProfileName)
+		end,
+		"Rename the current profile.")
+
+	AddButton("", "Export Profile",
 		function() StaticPopup_Show("PRO_EXPORT_PROFILE") end,
-		"Export the current profile as a shareable string.", addSearchTags))
+		"Export the current profile as a shareable string.")
 
-	layout:AddInitializer(CreateSettingsButtonInitializer(
-		"", "Import Profile",
+	AddButton("", "Import Profile",
 		function() StaticPopup_Show("PRO_IMPORT_PROFILE") end,
-		"Import a profile from a shared string.", addSearchTags))
+		"Import a profile from a shared string.")
 
 	-- ═════════════════════════════════════════════════════════════════════
 	-- Display
@@ -395,12 +465,59 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 	layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Display"))
 
-	local enableDisplayInitializer = AddCheckbox(
-		"PRO_enableDisplay", "enableDisplay",
-		"Show Display", "Show or hide the entire Personal Resource Display.",
-		true, nil, nil)
+	-- ── Show Display (read-only unless override is active) ───────────────
+
+	local function ShowDisplayTooltip()
+		if db.overrideDisplay then
+			return "Show or hide the Personal Resource Display. Override mode is active: all characters using this profile will use this value."
+		else
+			return "Reflects whether the Personal Resource Display is currently shown. This is controlled by the character-specific CVar (Options > Combat > Personal Resource Display). Enable Override Display Visibility below to control this setting directly."
+		end
+	end
+
+	local function CanModifyShowDisplay()
+		return not InCombatLockdown() and db.overrideDisplay
+	end
+
+	local enableDisplaySetting = Settings.RegisterAddOnSetting(category, "PRO_enableDisplay", "enableDisplay", db, Settings.VarType.Boolean, "Show Display", true)
+	local enableDisplayInitializer = Settings.CreateCheckbox(category, enableDisplaySetting, ShowDisplayTooltip)
+	enableDisplayInitializer:AddModifyPredicate(CanModifyShowDisplay)
+	enableDisplayInitializer:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+	enableDisplayInitializer:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
+	-- Re-evaluate when Override changes so the checkbox grays/ungrays immediately.
+	-- AddEvaluateStateCVar works for addon settings too (shared SettingsCallbackRegistry).
+	enableDisplayInitializer:AddEvaluateStateCVar("PRO_overrideDisplay")
+	enableDisplaySetting:SetValueChangedCallback(onChanged)
+	PRO.enableDisplaySetting = enableDisplaySetting
 
 	local function IsDisplayEnabled() return db.enableDisplay end
+
+	-- ── Override Display (controls whether Show Display is user-editable) ──
+
+	local overrideDisplaySetting = Settings.RegisterAddOnSetting(
+		category, "PRO_overrideDisplay", "overrideDisplay", db,
+		Settings.VarType.Boolean, "Override Display Visibility", false)
+	local overrideDisplayInitializer = Settings.CreateCheckbox(category, overrideDisplaySetting,
+		"Personal Resource Display visibility is normally controlled through a character-specific CVar. " ..
+		"Enabling this option overrides that value to use a single setting, the Show Display checkbox above, for all characters.")
+	overrideDisplayInitializer:AddModifyPredicate(NotInCombat)
+	overrideDisplayInitializer:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
+	overrideDisplayInitializer:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
+	overrideDisplaySetting:SetValueChangedCallback(function(setting, value)
+		-- When override is turned off, sync enableDisplay from the CVar
+		-- so the grayed-out checkbox reflects the current Blizzard state
+		-- rather than the addon's stale override value.
+		if not value then
+			local cvarEnabled = C_CVar.GetCVar(PRO.PRD_ENABLED_CVAR) == "1"
+			if db.enableDisplay ~= cvarEnabled then
+				db.enableDisplay = cvarEnabled
+				if PRO.enableDisplaySetting then
+					PRO.enableDisplaySetting:SetValue(cvarEnabled)
+				end
+			end
+		end
+		onChanged()
+	end)
 
 	local enableHealthBarInitializer = AddCheckbox(
 		"PRO_enableHealthBar", "enableHealthBar",
@@ -418,6 +535,8 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 			"PRO_enableAltPowerBar", "enableAltPowerBar",
 			"Show Alternate Power Bar", "Show or hide the alternate power bar.",
 			true, enableDisplayInitializer, IsDisplayEnabled)
+		enableAltPowerBarInitializer:AddShownPredicate(SpecUsesAltPower)
+		enableAltPowerBarInitializer:AddEvaluateStateFrameEvent("PLAYER_SPECIALIZATION_CHANGED")
 	end
 
 	local enableClassFrameInitializer
@@ -461,20 +580,26 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 	-- ═════════════════════════════════════════════════════════════════════
 
 	if hasAltPowerBar then
-		layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Alternate Power Bar Text"))
+		local altPowerTextHeader = CreateSettingsListSectionHeaderInitializer("Alternate Power Bar Text")
+		altPowerTextHeader:AddShownPredicate(SpecUsesAltPower)
+		altPowerTextHeader:AddEvaluateStateFrameEvent("PLAYER_SPECIALIZATION_CHANGED")
+		layout:AddInitializer(altPowerTextHeader)
 
 		local altPowerEnableInit = AddTextSection("altPower", "Alt Power ", "Show Alternate Power Value",
 			"Display the current value on the alternate power bar.",
 			14, enableAltPowerBarInitializer,
-			function() return db.enableDisplay and db.enableAltPowerBar end)
+			function() return db.enableDisplay and db.enableAltPowerBar end,
+			SpecUsesAltPower, "PLAYER_SPECIALIZATION_CHANGED")
 
-		AddSlider(
+		local decimalsInit = AddSlider(
 			"PRO_altPowerTextDecimals", "altPowerTextDecimals",
 			"Alt Power Decimal Places",
 			"Decimal places shown (0 = integer, 1 = one decimal, 2 = two). Evoker Ebon Might benefits from 1; DH Soul Fragments and Monk Stagger are always whole numbers.",
 			1, 0, 2, 1,
 			altPowerEnableInit,
 			function() return db.enableDisplay and db.enableAltPowerBar and db.enableAltPowerText end)
+		decimalsInit:AddShownPredicate(SpecUsesAltPower)
+		decimalsInit:AddEvaluateStateFrameEvent("PLAYER_SPECIALIZATION_CHANGED")
 	end
 
 	-- ═════════════════════════════════════════════════════════════════════

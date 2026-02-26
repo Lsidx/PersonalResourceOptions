@@ -52,23 +52,28 @@ end
 function PRO.DisplayManagerMixin:InstallHooks(prd, db)
 	local mgr = self
 
+	-- All hooks guard against InCombatLockdown() because the PRD frames
+	-- are protected nameplate children; Show/Hide/SetShown would be
+	-- blocked (and spread taint) if called from insecure addon code
+	-- while the player is in combat.
+
 	prd:HookScript("OnShow", function()
-		if not db.enableDisplay then
-			prd:Hide()
-			return
-		end
+		if InCombatLockdown() then return end
 		if prd.HealthBarsContainer and not db.enableHealthBar then
 			prd.HealthBarsContainer:Hide()
 		end
 		if prd.PowerBar and not db.enablePowerBar then
 			prd.PowerBar:Hide()
 		end
-		if prd.AlternatePowerBar and (not mgr.hasAltPowerBar or not db.enableAltPowerBar) then
+		if prd.AlternatePowerBar
+				and (not mgr.hasAltPowerBar or not db.enableAltPowerBar
+					or not prd.AlternatePowerBar.alternatePowerRequirementsMet) then
 			prd.AlternatePowerBar:Hide()
 		end
 		if mgr.hasClassFrame and prdClassFrame then
-			prdClassFrame:SetShown(db.enableClassFrame)
-			if db.enableClassFrame then
+			if not db.enableClassFrame then
+				prdClassFrame:Hide()
+			elseif prdClassFrame:IsShown() then
 				mgr:ApplyClassFrameLayout(db)
 			end
 		end
@@ -76,28 +81,34 @@ function PRO.DisplayManagerMixin:InstallHooks(prd, db)
 
 	if prd.HealthBarsContainer then
 		prd.HealthBarsContainer:HookScript("OnShow", function()
-			if not db.enableDisplay or not db.enableHealthBar then
+			if InCombatLockdown() then return end
+			if not db.enableHealthBar then
 				prd.HealthBarsContainer:Hide()
 			end
 		end)
 	end
 	if prd.PowerBar then
 		prd.PowerBar:HookScript("OnShow", function()
-			if not db.enableDisplay or not db.enablePowerBar then
+			if InCombatLockdown() then return end
+			if not db.enablePowerBar then
 				prd.PowerBar:Hide()
 			end
 		end)
 	end
 	if prd.AlternatePowerBar then
 		prd.AlternatePowerBar:HookScript("OnShow", function()
-			if not db.enableDisplay or not db.enableAltPowerBar then
+			if InCombatLockdown() then return end
+			if not db.enableAltPowerBar then
 				prd.AlternatePowerBar:Hide()
 			end
 		end)
 	end
 	if mgr.hasClassFrame and prdClassFrame then
 		prdClassFrame:HookScript("OnShow", function()
-			if db.enableDisplay and db.enableClassFrame then
+			if InCombatLockdown() then return end
+			if not db.enableClassFrame then
+				prdClassFrame:Hide()
+			else
 				mgr:ApplyClassFrameLayout(db)
 			end
 		end)
@@ -121,11 +132,35 @@ function PRO.DisplayManagerMixin:ApplySettings(db)
 	local prd = PersonalResourceDisplayFrame
 	if not prd then return end
 
-	-- Display master toggle
-	if not db.enableDisplay then
-		prd:Hide()
-	else
-		prd:UpdateShownState()
+	-- Protected nameplate frames cannot be modified in combat.
+	-- Defer the entire pass to after combat ends.
+	if InCombatLockdown() then
+		local f = self._regenFrame
+		if not f then
+			f = CreateFrame("Frame")
+			self._regenFrame = f
+			local mgr = self
+			f:SetScript("OnEvent", function(frame)
+				frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				if frame._pendingDb then
+					mgr:ApplySettings(frame._pendingDb)
+					frame._pendingDb = nil
+				end
+			end)
+		end
+		f._pendingDb = db
+		f:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+
+	-- Display master toggle — only write the CVar in override mode.
+	-- In sync mode (override off), the CVar is owned by Blizzard's
+	-- Combat settings, and we merely read it.
+	if db.overrideDisplay then
+		local wantEnabled = db.enableDisplay and "1" or "0"
+		if C_CVar.GetCVar(PRO.PRD_ENABLED_CVAR) ~= wantEnabled then
+			C_CVar.SetCVar(PRO.PRD_ENABLED_CVAR, wantEnabled)
+		end
 	end
 
 	-- Child bar visibility
@@ -135,17 +170,32 @@ function PRO.DisplayManagerMixin:ApplySettings(db)
 	if prd.PowerBar then
 		prd.PowerBar:SetShown(db.enablePowerBar)
 	end
+
+	-- Alternate power bar — spec-dependent (e.g. Monk Stagger is Brewmaster
+	-- only). Blizzard sets alternatePowerRequirementsMet via EvaluateUnit();
+	-- we only Show() when the current spec actually uses this bar.
 	if prd.AlternatePowerBar then
-		prd.AlternatePowerBar:SetShown(self.hasAltPowerBar and db.enableAltPowerBar)
+		local specUsesAltPower = self.hasAltPowerBar
+			and prd.AlternatePowerBar.alternatePowerRequirementsMet
+		if specUsesAltPower and db.enableAltPowerBar then
+			prd.AlternatePowerBar:Show()
+		else
+			prd.AlternatePowerBar:Hide()
+		end
 	end
+
 	prd:SetScale(db.displayScale / 100)
 
-	-- Class frame
+	-- Class frame — spec-dependent (e.g. Monk Chi is Windwalker only).
+	-- Don't force-show; Blizzard's ClassResourceBarMixin:Setup() manages
+	-- spec-based visibility. We only hide when the user has disabled it,
+	-- and apply layout if it's already visible on the correct spec.
 	if prdClassFrame then
 		if db.enableClassFrame then
-			prdClassFrame:Show()
-			self:ApplyClassFrameLayout(db)
-		elseif prdClassFrame:IsVisible() then
+			if prdClassFrame:IsShown() then
+				self:ApplyClassFrameLayout(db)
+			end
+		else
 			prdClassFrame:Hide()
 		end
 	end
@@ -159,7 +209,11 @@ function PRO.DisplayManagerMixin:ApplySettings(db)
 		self.powerOverlay:Apply(db, prd.PowerBar)
 	end
 
-	self.altPowerOverlay:Apply(db, self.hasAltPowerBar)
+	-- Pass spec-aware flag so the overlay doesn't run OnUpdate on wrong specs
+	local altPowerActive = self.hasAltPowerBar
+		and prd.AlternatePowerBar
+		and prd.AlternatePowerBar.alternatePowerRequirementsMet
+	self.altPowerOverlay:Apply(db, altPowerActive)
 
 	if self.runeCooldownOverlay:IsCreated() then
 		self.runeCooldownOverlay:Apply(db, prdClassFrame)

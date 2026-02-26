@@ -4,6 +4,7 @@
 local ADDON_NAME, PRO = ...
 
 PRO.ADDON_NAME = ADDON_NAME
+PRO.PRD_ENABLED_CVAR = "nameplateShowSelf"
 
 -- ---------------------------------------------------------------------------
 -- Default settings values
@@ -11,6 +12,7 @@ PRO.ADDON_NAME = ADDON_NAME
 
 PRO.DEFAULTS = {
 	enableDisplay             = true,
+	overrideDisplay           = false,
 	enableHealthBar           = true,
 	enablePowerBar            = true,
 	enableAltPowerBar         = true,
@@ -41,13 +43,13 @@ PRO.DEFAULTS = {
 	altPowerTextMono          = false,
 	altPowerTextColor         = "ffffffff",
 	altPowerTextDecimals      = 1,
-	enableRuneCooldownText       = true,
-	runeCooldownTextAnchor       = "CENTER",
-	runeCooldownTextFont         = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
-	runeCooldownTextSize         = 12,
-	runeCooldownTextOutline      = "THICKOUTLINE",
-	runeCooldownTextMono         = false,
-	runeCooldownTextColor        = "ffffffff",
+	enableRuneCooldownText    = true,
+	runeCooldownTextAnchor    = "CENTER",
+	runeCooldownTextFont      = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	runeCooldownTextSize      = 12,
+	runeCooldownTextOutline   = "THICKOUTLINE",
+	runeCooldownTextMono      = false,
+	runeCooldownTextColor     = "ffffffff",
 }
 
 -- ---------------------------------------------------------------------------
