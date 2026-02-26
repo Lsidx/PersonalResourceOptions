@@ -60,12 +60,7 @@ function PRO.RuneCooldownOverlayMixin:Apply(db, prdClassFrame)
 	end
 
 	local flags = PRO.BuildFontFlags(db.runeCooldownTextOutline, db.runeCooldownTextMono)
-	local runeOffX, runeOffY = 0, 0
-	if db.runeCooldownTextOutline == "THICKOUTLINE" then
-		runeOffX, runeOffY = 0.6, -0.4
-	elseif db.runeCooldownTextOutline == "OUTLINE" then
-		runeOffX, runeOffY = 0.4, 0
-	end
+	local runeOffX, runeOffY = PRO.GetOutlineOffsets(db.runeCooldownTextOutline)
 	local rColor = CreateColorFromHexString(db.runeCooldownTextColor)
 
 	for i = 1, 6 do

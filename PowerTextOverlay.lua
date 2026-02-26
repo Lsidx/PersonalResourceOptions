@@ -33,7 +33,7 @@ function PRO.PowerTextOverlayMixin:Apply(db, powerBar)
 
 	self:ApplyFont(db.powerTextFont, db.powerTextSize,
 		db.powerTextOutline, db.powerTextMono, db.powerTextColor)
-	self:SetAnchor(db.powerTextAnchor, powerBar)
+	self:SetAnchor(db.powerTextAnchor, powerBar, db.powerTextOutline)
 	self:Show()
 	self.eventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
 	self.eventFrame:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")

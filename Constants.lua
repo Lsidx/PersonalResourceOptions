@@ -5,10 +5,13 @@ local ADDON_NAME, PRO = ...
 
 PRO.ADDON_NAME = ADDON_NAME
 PRO.PRD_ENABLED_CVAR = "nameplateShowSelf"
+PRO.FONT_DEFAULT = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF"
 
 -- ---------------------------------------------------------------------------
 -- Default settings values
 -- ---------------------------------------------------------------------------
+
+local FONT_DEFAULT = PRO.FONT_DEFAULT
 
 PRO.DEFAULTS = {
 	enableDisplay             = true,
@@ -23,21 +26,21 @@ PRO.DEFAULTS = {
 	classFrameOffsetY         = 0,
 	enableHealthText          = true,
 	healthTextAnchor          = "CENTER",
-	healthTextFont            = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	healthTextFont            = FONT_DEFAULT,
 	healthTextSize            = 14,
 	healthTextOutline         = "THICKOUTLINE",
 	healthTextMono            = false,
 	healthTextColor           = "ffffffff",
 	enablePowerText           = true,
 	powerTextAnchor           = "CENTER",
-	powerTextFont             = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	powerTextFont             = FONT_DEFAULT,
 	powerTextSize             = 14,
 	powerTextOutline          = "THICKOUTLINE",
 	powerTextMono             = false,
 	powerTextColor            = "ffffffff",
 	enableAltPowerText        = true,
 	altPowerTextAnchor        = "CENTER",
-	altPowerTextFont          = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	altPowerTextFont          = FONT_DEFAULT,
 	altPowerTextSize          = 14,
 	altPowerTextOutline       = "THICKOUTLINE",
 	altPowerTextMono          = false,
@@ -45,7 +48,7 @@ PRO.DEFAULTS = {
 	altPowerTextDecimals      = 1,
 	enableRuneCooldownText    = true,
 	runeCooldownTextAnchor    = "CENTER",
-	runeCooldownTextFont      = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF",
+	runeCooldownTextFont      = FONT_DEFAULT,
 	runeCooldownTextSize      = 12,
 	runeCooldownTextOutline   = "THICKOUTLINE",
 	runeCooldownTextMono      = false,

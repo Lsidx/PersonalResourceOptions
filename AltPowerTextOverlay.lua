@@ -19,11 +19,11 @@ end
 
 --- Apply alternate power text settings from the flat db.
 --- @param db table Flat settings table.
---- @param hasAltPowerBar boolean Whether the class has an alt power bar.
-function PRO.AltPowerTextOverlayMixin:Apply(db, hasAltPowerBar)
+--- @param altPowerActive boolean Whether the alt power bar is active for the current spec.
+function PRO.AltPowerTextOverlayMixin:Apply(db, altPowerActive)
 	if not self:IsCreated() then return end
 
-	if not hasAltPowerBar or not db.enableAltPowerText then
+	if not altPowerActive or not db.enableAltPowerText then
 		self.eventFrame:SetScript("OnUpdate", nil)
 		self:Hide()
 		return
@@ -31,7 +31,7 @@ function PRO.AltPowerTextOverlayMixin:Apply(db, hasAltPowerBar)
 
 	self:ApplyFont(db.altPowerTextFont, db.altPowerTextSize,
 		db.altPowerTextOutline, db.altPowerTextMono, db.altPowerTextColor)
-	self:SetAnchor(db.altPowerTextAnchor, self.altPowerBar)
+	self:SetAnchor(db.altPowerTextAnchor, self.altPowerBar, db.altPowerTextOutline)
 	self:Show()
 	self.altPowerOptions = PRO.ALT_POWER_OPTIONS[db.altPowerTextDecimals or 1]
 

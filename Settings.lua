@@ -6,7 +6,7 @@ local _, PRO = ...
 
 local CATEGORY_NAME = "Personal Resource Options"
 
-local FONT_DEFAULT = "Interface\\AddOns\\PersonalResourceOptions\\Assets\\EXPRESSWAY.TTF"
+local FONT_DEFAULT = PRO.FONT_DEFAULT
 
 local ANCHOR_OPTIONS = {
 	{ value = "LEFT",        label = "Left"         },
@@ -27,6 +27,22 @@ local OUTLINE_OPTIONS = {
 	{ value = "OUTLINE",      label = "Outline"       },
 	{ value = "THICKOUTLINE", label = "Thick Outline" },
 }
+
+-- Common labels and tooltips shared by all text overlay sections
+local L_SHOW_VALUE  = "Show Value"
+local L_ANCHOR      = "Anchor Point"
+local L_FONT        = "Font"
+local L_FONT_SIZE   = "Font Size"
+local L_FONT_COLOR  = "Font Color"
+local L_OUTLINE     = "Outline"
+local L_MONOCHROME  = "Monochrome"
+
+local TT_ANCHOR     = "Where on the bar the text is anchored."
+local TT_FONT       = "Typeface used for the text."
+local TT_FONT_SIZE  = "Text size in points (6-32)."
+local TT_FONT_COLOR = "Color of the text."
+local TT_OUTLINE    = "Outline thickness applied to the text."
+local TT_MONO       = "Render the text without anti-aliasing."
 
 -- ---------------------------------------------------------------------------
 -- Profile management dialogs
@@ -306,33 +322,31 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 	-- ── Text-overlay section helper ───────────────────────────────────────
 	-- Registers the 7 controls common to every text overlay:
-	--   enable checkbox -> anchor -> font -> size -> outline -> mono -> color
+	--   enable -> anchor -> font -> size -> color -> outline -> mono
 	--
 	-- prefix        : db key prefix, e.g. "health", "power", "altPower", "runeCooldown"
-	-- labelPrefix   : UI label prefix, e.g. "", "Power ", "Alt Power ", "Rune Cooldown "
-	-- enableLabel   : label for the master enable checkbox
 	-- enableTooltip : tooltip for the master enable checkbox
 	-- defaultSize   : default font size (14 for text overlays, 12 for rune cooldown)
 	-- parentInit    : parent initializer for the enable checkbox
 	-- parentPred    : predicate for parentInit (must check full ancestor chain)
 
-	local function AddTextSection(prefix, labelPrefix, enableLabel, enableTooltip,
+	local function AddTextSection(prefix, enableTooltip,
 	                              defaultSize, parentInit, parentPred, shownPred, shownEvent)
 		local cap = prefix:sub(1, 1):upper() .. prefix:sub(2)
 		local ep  = "enable" .. cap .. "Text"  -- e.g. "enableHealthText"
 		local p   = prefix .. "Text"            -- e.g. "healthText"
 		local K   = "PRO_"
 
-		local enableInit = AddCheckbox(K..ep, ep, enableLabel, enableTooltip, true, parentInit, parentPred)
+		local enableInit = AddCheckbox(K..ep, ep, L_SHOW_VALUE, enableTooltip, true, parentInit, parentPred)
 
 		local function leafPred() return parentPred() and db[ep] end
 
-		local i1 = AddDropdown   (K..p.."Anchor",       p.."Anchor",       labelPrefix.."Anchor Point", "Where on the bar the text is anchored.",     "CENTER",     GetAnchorOptions, enableInit, leafPred)
-		local i2 = AddDropdown   (K..p.."Font",         p.."Font",         labelPrefix.."Font",          "Typeface used for the text.",                FONT_DEFAULT, GetFontOptions,   enableInit, leafPred)
-		local i3 = AddSlider     (K..p.."Size",         p.."Size",         labelPrefix.."Text Size",     "Text size in points (6-32).",                defaultSize,  6, 32, 1,         enableInit, leafPred)
-		local i4 = AddDropdown   (K..p.."Outline",      p.."Outline",      labelPrefix.."Outline",       "Outline thickness applied to the text.",     "THICKOUTLINE", GetOutlineOptions, enableInit, leafPred)
-		local i5 = AddCheckbox   (K..p.."Mono",         p.."Mono",         labelPrefix.."Monochrome",    "Render the text without anti-aliasing.",     false,                           enableInit, leafPred)
-		local i6 = AddColorSwatch(K..p.."Color",        p.."Color",        labelPrefix.."Text Color",    "Color of the text.",                                                           enableInit, leafPred)
+		local i1 = AddDropdown   (K..p.."Anchor",  p.."Anchor",  L_ANCHOR,     TT_ANCHOR,     "CENTER",       GetAnchorOptions,  enableInit, leafPred)
+		local i2 = AddDropdown   (K..p.."Font",    p.."Font",    L_FONT,       TT_FONT,       FONT_DEFAULT,   GetFontOptions,    enableInit, leafPred)
+		local i3 = AddSlider     (K..p.."Size",    p.."Size",    L_FONT_SIZE,  TT_FONT_SIZE,  defaultSize,    6, 32, 1,          enableInit, leafPred)
+		local i4 = AddColorSwatch(K..p.."Color",   p.."Color",   L_FONT_COLOR, TT_FONT_COLOR,                                    enableInit, leafPred)
+		local i5 = AddDropdown   (K..p.."Outline", p.."Outline", L_OUTLINE,    TT_OUTLINE,    "THICKOUTLINE", GetOutlineOptions, enableInit, leafPred)
+		local i6 = AddCheckbox   (K..p.."Mono",    p.."Mono",    L_MONOCHROME, TT_MONO,       false,                             enableInit, leafPred)
 
 		if shownPred then
 			for _, init in ipairs({enableInit, i1, i2, i3, i4, i5, i6}) do
@@ -409,7 +423,6 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		end
 		return c:GetData()
 	end
-
 	local copySetting = Settings.RegisterProxySetting(category, "PRO_COPY_FROM",
 		Settings.VarType.String, "Copy Settings From", "",
 		function() return "" end,
@@ -420,9 +433,6 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		end)
 	local copyInit = Settings.CreateDropdown(category, copySetting, GetCopyOptions,
 		"Immediately copies all settings from the selected profile into the active profile.")
-	copyInit.getSelectionTextFunc = function()
-		return "Select a profile..."
-	end
 	copyInit:AddModifyPredicate(NotInCombat)
 	copyInit:AddEvaluateStateFrameEvent("PLAYER_REGEN_ENABLED")
 	copyInit:AddEvaluateStateFrameEvent("PLAYER_REGEN_DISABLED")
@@ -558,7 +568,7 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 	layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Health Bar Text"))
 
-	AddTextSection("health", "", "Show Health Value",
+	AddTextSection("health",
 		"Display the current health value on the health bar.",
 		14, enableHealthBarInitializer,
 		function() return db.enableDisplay and db.enableHealthBar end)
@@ -569,7 +579,7 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 	layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Power Bar Text"))
 
-	AddTextSection("power", "Power ", "Show Power Value",
+	AddTextSection("power",
 		"Display the current power value on the power bar.",
 		14, enablePowerBarInitializer,
 		function() return db.enableDisplay and db.enablePowerBar end)
@@ -585,7 +595,7 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		altPowerTextHeader:AddEvaluateStateFrameEvent("PLAYER_SPECIALIZATION_CHANGED")
 		layout:AddInitializer(altPowerTextHeader)
 
-		local altPowerEnableInit = AddTextSection("altPower", "Alt Power ", "Show Alternate Power Value",
+		local altPowerEnableInit = AddTextSection("altPower",
 			"Display the current value on the alternate power bar.",
 			14, enableAltPowerBarInitializer,
 			function() return db.enableDisplay and db.enableAltPowerBar end,
@@ -593,7 +603,7 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 
 		local decimalsInit = AddSlider(
 			"PRO_altPowerTextDecimals", "altPowerTextDecimals",
-			"Alt Power Decimal Places",
+			"Decimal Places",
 			"Decimal places shown (0 = integer, 1 = one decimal, 2 = two). Evoker Ebon Might benefits from 1; DH Soul Fragments and Monk Stagger are always whole numbers.",
 			1, 0, 2, 1,
 			altPowerEnableInit,
@@ -613,21 +623,21 @@ function PRO.RegisterSettings(db, onChanged, hasAltPowerBar, hasClassFrame, hasC
 		local function IsClassFrameEnabled() return db.enableDisplay and db.enableClassFrame end
 
 		AddSlider("PRO_classFrameScale", "classFrameScale",
-			"Class Frame Scale (%)", "Scale of the class resource frame widget (50-400%).",
+			"Scale (%)", "Scale of the class resource frame (50-400%).",
 			100, 50, 400, 5, enableClassFrameInitializer, IsClassFrameEnabled)
 
 		AddSlider("PRO_classFrameOffsetX", "classFrameOffsetX",
-			"Class Frame X Offset", "Horizontal offset from the default position.",
+			"X Offset", "Horizontal offset from the default position.",
 			0, -50, 50, 1, enableClassFrameInitializer, IsClassFrameEnabled)
 
 		AddSlider("PRO_classFrameOffsetY", "classFrameOffsetY",
-			"Class Frame Y Offset", "Vertical offset from the default position.",
+			"Y Offset", "Vertical offset from the default position.",
 			0, -50, 50, 1, enableClassFrameInitializer, IsClassFrameEnabled)
 
 		if hasCooldownClassFrame then
 			layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Rune Cooldown Text"))
 
-			AddTextSection("runeCooldown", "Rune Cooldown ", "Show Rune Cooldowns",
+			AddTextSection("runeCooldown",
 				"Display remaining cooldown time on each Death Knight rune.",
 				12, enableClassFrameInitializer, IsClassFrameEnabled)
 		end

@@ -14,3 +14,18 @@ function PRO.BuildFontFlags(outline, mono)
 	end
 	return flags
 end
+
+--- Return pixel offsets that compensate for outline thickness.
+--- Outline and thick-outline glyphs shift the visual centre of small
+--- texts; these nudge values re-centre them on the parent widget.
+--- @param outline string "NONE"|"OUTLINE"|"THICKOUTLINE"
+--- @return number offsetX
+--- @return number offsetY
+function PRO.GetOutlineOffsets(outline)
+	if outline == "THICKOUTLINE" then
+		return 0.6, -0.4
+	elseif outline == "OUTLINE" then
+		return 0.4, 0
+	end
+	return 0, 0
+end

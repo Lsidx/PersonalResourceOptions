@@ -32,7 +32,7 @@ function PRO.HealthTextOverlayMixin:Apply(db, healthBar)
 
 	self:ApplyFont(db.healthTextFont, db.healthTextSize,
 		db.healthTextOutline, db.healthTextMono, db.healthTextColor)
-	self:SetAnchor(db.healthTextAnchor, healthBar)
+	self:SetAnchor(db.healthTextAnchor, healthBar, db.healthTextOutline)
 	self:Show()
 	self.eventFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
 	self.fontString:SetText(AbbreviateNumbers(UnitHealth("player")))

@@ -28,14 +28,14 @@ function PRO.TextOverlayMixin:ApplyFont(font, size, outline, mono, colorHex)
 	self.fontString:SetTextColor(CreateColorFromHexString(colorHex):GetRGBA())
 end
 
---- Anchor the FontString to a bar.
+--- Anchor the FontString to a bar, applying outline-compensation offsets.
 --- @param anchor string Anchor point (e.g. "CENTER", "LEFT", "RIGHT").
 --- @param bar Frame The bar frame to anchor to.
---- @param offsetX number|nil X offset (default 0).
---- @param offsetY number|nil Y offset (default 0).
-function PRO.TextOverlayMixin:SetAnchor(anchor, bar, offsetX, offsetY)
+--- @param outline string|nil "NONE"|"OUTLINE"|"THICKOUTLINE" (default "NONE").
+function PRO.TextOverlayMixin:SetAnchor(anchor, bar, outline)
+	local offsetX, offsetY = PRO.GetOutlineOffsets(outline)
 	self.fontString:ClearAllPoints()
-	self.fontString:SetPoint(anchor, bar, anchor, offsetX or 0, offsetY or 0)
+	self.fontString:SetPoint(anchor, bar, anchor, offsetX, offsetY)
 end
 
 --- Show the FontString.
